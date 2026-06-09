@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>yes2broker — Lead Intelligence</title>
+  <link rel="icon" href="Assets/fav.jpg" type="image/jpeg"/>
+  <link rel="stylesheet" href="styles.css"/>
+  <link rel="stylesheet" href="db-manager.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="Assets/logo.webp" alt="yes2broker" class="logo-img"
+         onerror="this.style.display='none';document.getElementById('logo-fallback').style.display='flex'"/>
+    <div class="logo-fallback" id="logo-fallback">yes2broker</div>
+  </div>
+
+  <div class="company-switcher-wrap">
+    <div class="cs-header" onclick="toggleCompanySwitcher()">
+      <span class="cs-label"><i data-lucide="building-2" style="width:12px;height:12px"></i> Company</span>
+      <span class="cs-active-name" id="activeCompanyBadge">yes2broker</span>
+      <i data-lucide="chevron-down" class="cs-arrow" id="csArrow" style="width:12px;height:12px"></i>
+    </div>
+    <div class="cs-dropdown" id="csDropdown">
+      <div class="cs-list" id="companySwitcher"></div>
+      <button class="cs-add-btn" onclick="openCompanyModal()">
+        <i data-lucide="plus" style="width:12px;height:12px"></i> Add Company
+      </button>
+      <div class="cs-manage" id="csManage"></div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <span class="nav-label">Analytics</span>
+    <a class="nav-item active" data-section="overview"><i data-lucide="layout-dashboard" class="nav-icon"></i>Overview</a>
+    <a class="nav-item" data-section="platform"><i data-lucide="radio" class="nav-icon"></i>Platform &amp; Source</a>
+    <a class="nav-item" data-section="owner"><i data-lucide="users" class="nav-icon"></i>Owner-wise Leads</a>
+    <a class="nav-item" data-section="status"><i data-lucide="activity" class="nav-icon"></i>Lead Status</a>
+    <a class="nav-item" data-section="calls"><i data-lucide="phone" class="nav-icon"></i>Call Analytics</a>
+    <a class="nav-item" data-section="visits"><i data-lucide="map-pin" class="nav-icon"></i>Site Visits</a>
+    <a class="nav-item" data-section="budget"><i data-lucide="building-2" class="nav-icon"></i>Budget &amp; Property</a>
+    <a class="nav-item" data-section="converted"><i data-lucide="check-circle-2" class="nav-icon"></i>Converted Leads</a>
+    <span class="nav-label" style="margin-top:8px">Insights</span>
+    <a class="nav-item" data-section="lifecycle"><i data-lucide="git-branch" class="nav-icon"></i>Lead Lifecycle</a>
+    <a class="nav-item" data-section="comparison"><i data-lucide="git-compare" class="nav-icon"></i>Employee Compare</a>
+    <a class="nav-item" data-section="leads-table"><i data-lucide="table-2" class="nav-icon"></i>All Leads</a>
+    <span class="nav-label" style="margin-top:8px">System</span>
+    <a class="nav-item" data-section="admin"><i data-lucide="shield" class="nav-icon"></i>Admin</a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <button class="refresh-btn" id="refreshBtn" onclick="loadData()">
+      <i data-lucide="refresh-cw" class="spin-icon"></i>Refresh
+    </button>
+    <div class="last-updated" id="lastUpdated">—</div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main-wrap">
+
+  <header class="topbar">
+    <button class="hamburger" onclick="toggleSidebar()"><i data-lucide="menu"></i></button>
+    <span class="topbar-title" id="pageTitle">Overview</span>
+
+    <div class="time-toggle">
+      <button class="tg active" onclick="setGranularity('daily',this)">Daily</button>
+      <button class="tg"        onclick="setGranularity('weekly',this)">Weekly</button>
+      <button class="tg"        onclick="setGranularity('monthly',this)">Monthly</button>
+    </div>
+
+    <!-- Multi-select filter dropdowns -->
+    <div class="filter-bar">
+      <div class="fg"><label>From</label><input type="date" id="filterFrom" onchange="applyFilters()"/></div>
+      <div class="fg"><label>To</label>  <input type="date" id="filterTo"   onchange="applyFilters()"/></div>
+      <div id="filterOwnerWrap"  class="ms-wrap-outer"></div>
+      <div id="filterSourceWrap" class="ms-wrap-outer"></div>
+      <div id="filterStatusWrap" class="ms-wrap-outer"></div>
+      <button class="clear-btn" onclick="clearFilters()">
+        <i data-lucide="x" style="width:11px;height:11px"></i>Clear
+      </button>
+    </div>
+  </header>
+
+  <!-- LOADING -->
+  <div class="loading-screen" id="loadingScreen">
+    <div class="pulse-logo">
+      <img src="Assets/logo.webp" alt="" onerror="this.style.display='none'"/>
+      <div class="pulse-ring r1"></div><div class="pulse-ring r2"></div><div class="pulse-ring r3"></div>
+    </div>
+    <div class="load-bars"><span></span><span></span><span></span><span></span><span></span></div>
+    <p class="load-text">Connecting to Supabase…</p>
+  </div>
+
+  <!-- ERROR -->
+  <div class="error-screen" id="errorScreen" style="display:none">
+    <i data-lucide="alert-triangle" class="err-icon"></i>
+    <p id="errorMsg">Could not load data.</p>
+    <button class="retry-btn" onclick="loadData()">Try Again</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="dashboard" id="dashboard" style="display:none">
+
+    <!-- OVERVIEW -->
+    <section class="section active" id="section-overview">
+      <div class="sec-head"><h2 class="sec-title">Overview</h2><span class="rec-badge" id="overviewCount"></span></div>
+      <div class="kpi-grid" id="kpiGrid"></div>
+      <div class="charts-row">
+        <div class="chart-card wide">
+          <div class="cl"><i data-lucide="bar-chart-2" class="cl-i"></i>Leads by Owner<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="timelineChartWrap" class="chart-scroll-wrap"></div>
+        </div>
+        <div class="chart-card"><div class="cl"><i data-lucide="pie-chart" class="cl-i"></i>Source Mix</div><canvas id="overviewSourceChart"></canvas></div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="list" class="cl-i"></i>Filtered Leads</div><div class="tbl-scroll"><table id="overviewTable"></table></div></div>
+      <div id="overviewPg"></div>
+    </section>
+
+    <!-- PLATFORM -->
+    <section class="section" id="section-platform">
+      <div class="sec-head"><h2 class="sec-title">Platform &amp; Source</h2><span class="rec-badge" id="platformCount"></span></div>
+      <div class="charts-row">
+        <div class="chart-card wide"><div class="cl"><i data-lucide="bar-chart-2" class="cl-i"></i>Leads by Source</div><canvas id="sourceBarChart"></canvas></div>
+        <div class="chart-card"><div class="cl"><i data-lucide="pie-chart" class="cl-i"></i>Distribution</div><canvas id="sourcePieChart"></canvas></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="trending-up" class="cl-i"></i>Source Trend — % Share <span class="click-hint">hover for full breakdown</span><span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="sourceTrendWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="list" class="cl-i"></i>Source Summary</div><div class="tbl-scroll"><table id="sourceTable"></table></div></div>
+      <div id="sourcePg"></div>
+    </section>
+
+    <!-- OWNER -->
+    <section class="section" id="section-owner">
+      <div class="sec-head"><h2 class="sec-title">Owner-wise Leads</h2><span class="rec-badge" id="ownerCount"></span></div>
+      <div class="kpi-grid" id="ownerKpiGrid"></div>
+      <div class="charts-row">
+        <div class="chart-card wide"><div class="cl"><i data-lucide="bar-chart-2" class="cl-i"></i>Leads per Owner</div><canvas id="ownerBarChart"></canvas></div>
+        <div class="chart-card"><div class="cl"><i data-lucide="pie-chart" class="cl-i"></i>Owner Share</div><canvas id="ownerPieChart"></canvas></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="trending-up" class="cl-i"></i>Owner Trend<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="ownerTrendWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="list" class="cl-i"></i>Owner Performance</div><div class="tbl-scroll"><table id="ownerTable"></table></div></div>
+      <div id="ownerVisitNote" class="owner-visit-note"></div>
+      <div id="ownerPg"></div>
+    </section>
+
+    <!-- STATUS -->
+    <section class="section" id="section-status">
+      <div class="sec-head"><h2 class="sec-title">Lead Status</h2><span class="rec-badge" id="statusCount"></span></div>
+      <div class="kpi-grid" id="statusKpiGrid"></div>
+      <div class="charts-row">
+        <div class="chart-card"><div class="cl"><i data-lucide="pie-chart" class="cl-i"></i>Distribution</div><canvas id="statusDoughnutChart"></canvas></div>
+        <div class="chart-card wide">
+          <div class="cl"><i data-lucide="bar-chart-3" class="cl-i"></i>Status by Owner <span class="click-hint">hover for full breakdown</span><span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="statusOwnerWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="trending-up" class="cl-i"></i>Status Trend <span class="click-hint">hover for full breakdown</span><span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="statusTrendWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="list" class="cl-i"></i>Status Detail</div><div class="tbl-scroll"><table id="statusTable"></table></div></div>
+      <div id="statusPg"></div>
+    </section>
+
+    <!-- CALLS -->
+    <section class="section" id="section-calls">
+      <div class="sec-head"><h2 class="sec-title">Call Analytics</h2><span class="rec-badge" id="callsCount"></span></div>
+      <div class="kpi-grid" id="callKpiGrid"></div>
+      <div class="charts-row">
+        <div class="chart-card wide">
+          <div class="cl"><i data-lucide="bar-chart-2" class="cl-i"></i>Call Distribution<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="callCountWrap" class="chart-scroll-wrap"></div>
+        </div>
+        <div class="chart-card"><div class="cl"><i data-lucide="pie-chart" class="cl-i"></i>Call Outcomes</div><canvas id="callOutcomeChart"></canvas></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="trending-up" class="cl-i"></i>Calls Trend<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="callTrendWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="phone-call" class="cl-i"></i>Call Log — All 3 Notes</div><div class="tbl-scroll"><table id="callTable"></table></div></div>
+      <div id="callPg"></div>
+    </section>
+
+    <!-- VISITS -->
+    <section class="section" id="section-visits">
+      <div class="sec-head"><h2 class="sec-title">Site Visits</h2><span class="rec-badge" id="visitsCount"></span></div>
+      <div class="kpi-grid" id="visitKpiGrid"></div>
+      <div class="charts-row">
+        <div class="chart-card"><div class="cl"><i data-lucide="users" class="cl-i"></i>By Staff</div><canvas id="visitStatusChart"></canvas></div>
+        <div class="chart-card wide">
+          <div class="cl"><i data-lucide="trending-up" class="cl-i"></i>Visits Over Time<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="visitProjectWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="map-pin" class="cl-i"></i>By Location<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="visitLocationWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="building-2" class="cl-i"></i>By Project<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="visitProjectChartWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full"><div class="cl"><i data-lucide="refresh-cw" class="cl-i"></i>Revisits by Owner</div><canvas id="revisitChart"></canvas></div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="list" class="cl-i"></i>Visit Records</div><div class="tbl-scroll"><table id="visitTable"></table></div></div>
+      <div id="visitPg"></div>
+    </section>
+
+    <!-- BUDGET -->
+    <section class="section" id="section-budget">
+      <div class="sec-head"><h2 class="sec-title">Budget &amp; Property</h2><span class="rec-badge" id="budgetCount"></span></div>
+      <div class="kpi-grid" id="budgetKpiGrid"></div>
+      <div class="charts-row">
+        <div class="chart-card"><div class="cl"><i data-lucide="home" class="cl-i"></i>Property Type</div><canvas id="propTypeChart"></canvas></div>
+        <div class="chart-card"><div class="cl"><i data-lucide="layers" class="cl-i"></i>BHK Config</div><canvas id="bhkChart"></canvas></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="building-2" class="cl-i"></i>Project-wise Leads<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="projectChartWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="list" class="cl-i"></i>Property Records</div><div class="tbl-scroll"><table id="budgetTable"></table></div></div>
+      <div id="budgetPg"></div>
+    </section>
+
+    <!-- CONVERTED -->
+    <section class="section" id="section-converted">
+      <div class="sec-head"><h2 class="sec-title">Converted Leads</h2><span class="rec-badge" id="convertedCount"></span></div>
+      <div class="kpi-grid" id="convertedKpiGrid"></div>
+      <div class="charts-row">
+        <div class="chart-card wide"><div class="cl"><i data-lucide="bar-chart-2" class="cl-i"></i>By Owner</div><canvas id="convOwnerChart"></canvas></div>
+        <div class="chart-card"><div class="cl"><i data-lucide="pie-chart" class="cl-i"></i>Owner Share</div><canvas id="convOwnerPie"></canvas></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card"><div class="cl"><i data-lucide="radio" class="cl-i"></i>By Source</div><canvas id="convSourceBar"></canvas></div>
+        <div class="chart-card wide">
+          <div class="cl"><i data-lucide="trending-up" class="cl-i"></i>Conversion Trend<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="convTrendWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="list" class="cl-i"></i>Conversion Records</div><div class="tbl-scroll"><table id="convTable"></table></div></div>
+      <div id="convPg"></div>
+    </section>
+
+    <!-- LIFECYCLE -->
+    <section class="section" id="section-lifecycle">
+      <div class="sec-head"><h2 class="sec-title">Lead Lifecycle</h2><span class="rec-badge" id="lifecycleCount" style="display:none"></span></div>
+      <div class="lifecycle-layout">
+        <div class="lc-stages-col">
+          <div class="lc-title">Journey from Inquiry to Closure</div>
+          <div id="lifecycleStages" class="lc-stages"></div>
+        </div>
+        <div class="lc-right-col">
+          <div id="lcMascot" class="lc-mascot"></div>
+          <div class="chart-card" style="margin-top:14px">
+            <div class="cl"><i data-lucide="bar-chart-2" class="cl-i"></i>Conversion Rates %</div>
+            <canvas id="lifecycleChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPARISON -->
+    <section class="section" id="section-comparison">
+      <div class="sec-head"><h2 class="sec-title">Employee Comparison</h2></div>
+      <div class="comp-controls">
+        <div class="comp-group"><label class="comp-label">Employees</label><div class="comp-checks" id="compCheckboxes"></div></div>
+        <div class="comp-group"><label class="comp-label">Metric</label>
+          <select id="compMetric" onchange="renderSection('comparison')">
+            <option value="leads">Total Leads</option>
+            <option value="calls">Total Calls</option>
+            <option value="visits">Site Visits</option>
+            <option value="revisit">Revisits</option>
+            <option value="converted">Conversions</option>
+            <option value="inactive">Inactive</option>
+            <option value="visitRate">Visit Rate %</option>
+            <option value="closureRate">Closure Rate %</option>
+          </select>
+        </div>
+      </div>
+      <div class="comp-scorecards" id="compScorecard"></div>
+      <div class="charts-row">
+        <div class="chart-card wide"><div class="cl"><i data-lucide="bar-chart-3" class="cl-i"></i>Side-by-Side</div><canvas id="compBarChart"></canvas></div>
+        <div class="chart-card"><div class="cl"><i data-lucide="pie-chart" class="cl-i"></i>Share</div><canvas id="compPieChart"></canvas></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card wide"><div class="cl"><i data-lucide="check-circle" class="cl-i"></i>Conversion Count per Employee</div><canvas id="compConvChart"></canvas></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card full">
+          <div class="cl"><i data-lucide="trending-up" class="cl-i"></i>Performance Trend<span class="scroll-hint"><i data-lucide="move-horizontal" style="width:10px;height:10px"></i>scroll</span></div>
+          <div id="compTrendWrap" class="chart-scroll-wrap"></div>
+        </div>
+      </div>
+      <div class="data-table-block"><div class="dtb-head"><i data-lucide="table-2" class="cl-i"></i>Comparison Detail</div><div class="tbl-scroll"><table id="compTable"></table></div></div>
+    </section>
+
+    <!-- ALL LEADS -->
+    <section class="section" id="section-leads-table">
+      <div class="sec-head"><h2 class="sec-title">All Leads</h2><span class="rec-badge" id="allLeadsCount"></span></div>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="tableSearch" placeholder="Search name, mobile, project, status…" oninput="debouncedLeadsRender()"/>
+      </div>
+      <div class="data-table-block" style="margin-top:0"><div class="tbl-scroll"><table id="allLeadsTable"></table></div></div>
+      <div id="pagination"></div>
+    </section>
+
+    <!-- ADMIN — content injected by db-manager.js (initDatabaseSection) -->
+    <section class="section" id="section-admin"></section>
+
+  </div><!-- /dashboard -->
+</div><!-- /main-wrap -->
+
+<!-- COMPANY MODAL -->
+<div class="modal-overlay" id="companyModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Create Company</h3>
+      <button class="modal-close" onclick="closeCompanyModal()"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="modalEditId"/>
+      <div class="modal-field">
+        <label>Company Name</label>
+        <input type="text" id="companyNameInput" placeholder="e.g. Amrut Orchid"/>
+      </div>
+      <div class="modal-field">
+        <label>Select Projects <span class="field-hint">— checked items appear at top</span></label>
+        <div class="proj-search-wrap">
+          <i data-lucide="search" style="width:13px;height:13px;color:#94a3b8;position:absolute;left:8px;top:50%;transform:translateY(-50%);pointer-events:none"></i>
+          <input type="text" id="projectSearch" placeholder="Search projects…" oninput="renderProjectPicker(getSelectedProjectValues())"/>
+        </div>
+        <div class="proj-bulk-actions">
+          <button type="button" class="proj-bulk-btn" onclick="selectAllProjects(true)"><i data-lucide="check-square" style="width:12px;height:12px"></i> Select All</button>
+          <button type="button" class="proj-bulk-btn" onclick="selectAllProjects(false)"><i data-lucide="square" style="width:12px;height:12px"></i> Clear All</button>
+          <span class="proj-count" id="projSelCount"></span>
+        </div>
+        <div class="project-picker" id="projectPicker"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeCompanyModal()">Cancel</button>
+      <button class="btn-primary" id="saveCompanyBtn" onclick="saveCompany()">Save Company</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sidebarOverlay').classList.toggle('show');}
+function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebarOverlay').classList.remove('show');}
+function toggleCompanySwitcher(){
+  const d=document.getElementById('csDropdown'),a=document.getElementById('csArrow');
+  d.classList.toggle('open');
+  a.style.transform=d.classList.contains('open')?'rotate(180deg)':'';
+  if(d.classList.contains('open')){
+    const mgr=document.getElementById('csManage');
+    const cos=(typeof companies!=='undefined')?companies:[];
+    mgr.innerHTML=cos.length?'<div class="cs-manage-label">Manage</div>'+cos.map(c=>`<div class="cs-manage-item"><span>${c.name}</span><div class="cs-manage-actions"><button onclick="openCompanyModal(${c.id})"><i data-lucide="pencil" style="width:11px;height:11px"></i></button><button onclick="deleteCompany(${c.id})" class="danger"><i data-lucide="trash-2" style="width:11px;height:11px"></i></button></div></div>`).join(''):'';
+    lucide.createIcons();
+  }
+}
+document.addEventListener('click',e=>{if(!e.target.closest('.company-switcher-wrap'))document.getElementById('csDropdown')?.classList.remove('open');});
+function getSelectedProjectValues(){return(typeof getSelectedProjects==='function')?getSelectedProjects():[];}
+</script>
+<script src="app.js"></script>
+<script src="db-manager.js"></script>
+</body>
+</html>

@@ -2050,7 +2050,8 @@ function renderComparison(){
 
   // Build rows + accumulate totals
   let tLeads=0,tCalls=0,tVis=0,tRev=0,tConv=0;
-  const compRows=owners.map((o,i)=>{
+  const maxConv=Math.max(...owners.map(o=>convByOwner[o]||0),0);   // "vs Top" ranks by conversions
+  const compRows=owners.map((o)=>{
     const sub=d.filter(r=>r['Owner Name']===o);
     const cv=convByOwner[o]||0;
     const vis=visByOwner[o]||0;
@@ -2058,15 +2059,17 @@ function renderComparison(){
     const calls=sub.reduce((t,r)=>t+callCount(r),0);
     const vr=calls?Math.round(vis/calls*100):0;
     const cr=vis?Math.round(cv/vis*100):0;
+    const rr=vis?Math.round(rev/vis*100):0;
     tLeads+=sub.length;tCalls+=calls;tVis+=vis;tRev+=rev;tConv+=cv;
-    return[`<span style="cursor:pointer;color:var(--blue-600);font-weight:600" onclick="drillByOwner('${escHtml(o).replace(/'/g,"\\'")}')">${escHtml(o)}</span>`,sub.length,calls,vis,rev,cv,vr+'%',cr+'%',
-      vals[i]===maxVal&&maxVal>0?'<span class="badge b-green">Top</span>':`<span class="badge b-grey">${maxVal?Math.round(vals[i]/maxVal*100):0}%</span>`];
+    return[`<span style="cursor:pointer;color:var(--blue-600);font-weight:600" onclick="drillByOwner('${escHtml(o).replace(/'/g,"\\'")}')">${escHtml(o)}</span>`,sub.length,calls,vis,rev,rr+'%',cv,vr+'%',cr+'%',
+      cv===maxConv&&maxConv>0?'<span class="badge b-green">Top</span>':`<span class="badge b-grey">${maxConv?Math.round(cv/maxConv*100):0}%</span>`];
   });
   const totVr=tCalls?Math.round(tVis/tCalls*100):0;
   const totCr=tVis?Math.round(tConv/tVis*100):0;
-  fillTable('compTable',['Employee','Leads','Calls','Visits','Revisits','Converted','Visit Rate %','Closure Rate %','vs Top'],
+  const totRr=tVis?Math.round(tRev/tVis*100):0;
+  fillTable('compTable',['Employee','Leads','Calls','Visits','Revisits','Revisit Rate %','Converted','Visit Rate %','Closure Rate %','vs Top'],
     compRows,
-    ['Total',tLeads,tCalls,tVis,tRev,tConv,totVr+'%',totCr+'%','']);
+    ['Total',tLeads,tCalls,tVis,tRev,totRr+'%',tConv,totVr+'%',totCr+'%','']);
 }
 
 // ── LIFECYCLE ─────────────────────────────────────────────────

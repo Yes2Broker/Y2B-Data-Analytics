@@ -65,6 +65,7 @@ const CANONICAL = {
   'paid data':'Paid Data','paid':'Paid Data','channel partner':'Channel Partner',
   'just dial':'Just Dial','justdial':'Just Dial','sulekha':'Sulekha',
   'india property':'India Property','99 acres':'99 Acres',
+  'refrence':'Reference','reference':'Reference',
 };
 function canon(v){
   if(!v) return '';
@@ -1563,7 +1564,10 @@ function getActivityCoverage(rows){
   const days=[...new Set(rows.map(r=>{const d=parseDate(r['Created Date']);return d?d.getTime():null;}).filter(Boolean))].sort((a,b)=>a-b);
   if(!days.length)return null;
   const DAY=86400000,gaps=[];
-  for(let i=1;i<days.length;i++)if(days[i]-days[i-1]>7*DAY)gaps.push([days[i-1]+DAY,days[i]-DAY]);
+  // Known holiday breaks with no CRM activity — not reported as missing data
+  const IGNORED_GAPS=[['2026-11-07','2026-11-13']];   // Diwali 2026
+  const ignored=([a,b])=>IGNORED_GAPS.some(([f,t])=>a>=new Date(f+'T00:00:00').getTime()&&b<=new Date(t+'T00:00:00').getTime());
+  for(let i=1;i<days.length;i++)if(days[i]-days[i-1]>7*DAY){const g=[days[i-1]+DAY,days[i]-DAY];if(!ignored(g))gaps.push(g);}
   const today=new Date();today.setHours(0,0,0,0);
   const staleDays=Math.round((today-days[days.length-1])/DAY);
   return{first:days[0],last:days[days.length-1],gaps,staleDays};

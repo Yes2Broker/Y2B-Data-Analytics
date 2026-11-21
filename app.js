@@ -130,16 +130,26 @@ async function sbDelete(table,filter){
   if(!res.ok){let b='';try{b=await res.text();}catch(_){}throw new Error(`[${res.status}] ${b}`);}
   return true;
 }
-async function sbFetchAll(table,select='*',filter=''){
-  const PAGE=1000;let all=[],offset=0;
+// Fetch a whole table 1,000 rows per request, several requests at a time.
+// Ordered by id so pages never overlap or skip rows.
+async function sbFetchAll(table,select='*',filter='',onProgress=null){
+  const PAGE=1000,PARALLEL=4;let all=[],offset=0;
   while(true){
-    const parts=[`select=${select}`,`limit=${PAGE}`,`offset=${offset}`];
-    if(filter)parts.push(filter);
-    const batch=await sbFetch(table,parts.join('&'));
-    if(!Array.isArray(batch))throw new Error(`Bad response from ${table}`);
-    all=all.concat(batch);
-    if(batch.length<PAGE)break;
-    offset+=PAGE;
+    const offs=Array.from({length:PARALLEL},(_,k)=>offset+k*PAGE);
+    const pages=await Promise.all(offs.map(o=>{
+      const parts=[`select=${select}`,'order=id.asc',`limit=${PAGE}`,`offset=${o}`];
+      if(filter)parts.push(filter);
+      return sbFetch(table,parts.join('&'));
+    }));
+    let done=false;
+    for(const batch of pages){
+      if(!Array.isArray(batch))throw new Error(`Bad response from ${table}`);
+      all=all.concat(batch);
+      if(batch.length<PAGE){done=true;break;}
+    }
+    if(onProgress)onProgress(all.length);
+    if(done)break;
+    offset+=PARALLEL*PAGE;
   }
   return all;
 }
@@ -663,18 +673,21 @@ async function loadAll(){
     updateLoadText('Connecting…');
     const test=await sbFetch('master_data','select=id&limit=1');
     if(!Array.isArray(test))throw new Error('Unexpected response — check API key');
-    updateLoadText('Loading leads…');
-    masterCache=(await sbFetchAll('master_data','*','')).map(normaliseRow);
-    updateLoadText(`${masterCache.length.toLocaleString()} leads — loading visits…`);
-    try{
-      visitsCache = (await sbFetchAll('site_visit','*','')).map(normaliseVisitRow);
-    }catch(e){ console.error('site_visit load failed:',e); visitsCache=[]; showToast('Could not load Site Visits: '+e.message,'error'); }
-    try{
-      convertedCache = (await sbFetchAll('convertion','*','')).map(normaliseRow);
-    }catch(e){ console.error('convertion load failed:',e); convertedCache=[]; showToast('Could not load Conversions: '+e.message,'error'); }
-    try{
-      hotCache = await sbFetchAll('hot_leads','*','');
-    }catch(e){ console.error('hot_leads load failed:',e); hotCache=[]; showToast('Could not load Hot Leads activity data: '+e.message,'error'); }
+    // Load all tables at the same time; the optional ones fail softly with a message.
+    const prog={leads:0,visits:0,conversions:0,activity:0};
+    const showProg=()=>updateLoadText(`Loading… ${prog.leads.toLocaleString()} leads · ${prog.visits.toLocaleString()} visits · ${prog.activity.toLocaleString()} activity rows`);
+    showProg();
+    const soft=(p,label,fallback)=>p.catch(e=>{console.error(label+' load failed:',e);showToast(`Could not load ${label}: ${e.message}`,'error');return fallback;});
+    const [mRows,vRows,cRows,hRows]=await Promise.all([
+      sbFetchAll('master_data','*','',n=>{prog.leads=n;showProg();}),
+      soft(sbFetchAll('site_visit','*','',n=>{prog.visits=n;showProg();}),'Site Visits',[]),
+      soft(sbFetchAll('convertion','*','',n=>{prog.conversions=n;showProg();}),'Conversions',[]),
+      soft(sbFetchAll('hot_leads','*','',n=>{prog.activity=n;showProg();}),'Hot Leads activity data',[]),
+    ]);
+    masterCache=mRows.map(normaliseRow);
+    visitsCache=vRows.map(normaliseVisitRow);
+    convertedCache=cRows.map(normaliseRow);
+    hotCache=hRows;
     companies     =await loadCompanies();
     visitSourceConfig = await loadVisitSourceConfig();
     allProjects =[...new Set(masterCache.map(r=>r['Project Name']).filter(Boolean))].sort();
@@ -1443,7 +1456,8 @@ function getProperNouns(){
   visitsCache.forEach(r=>{add(r['Location']);splitProjects(r['Visited Project']).forEach(add);});
   ['Ahmedabad','Gandhinagar','Gujarat','Mumbai','Pune','Vadodara','Surat','Motera','Chandkheda','Koteshwar','Zundal',
    'Raysan','Kudasan','Sargasan','Sabarmati','Satellite','Vastrapur','Bopal','South Bopal','Gota','Thaltej','Prahlad Nagar',
-   'Bodakdev','Vaishnodevi','Tragad','Naroda','Nikol','Maninagar','Navrangpura','Science City','Shela','Shilaj'].forEach(add);
+   'Bodakdev','Vaishnodevi','Tragad','Naroda','Nikol','Maninagar','Navrangpura','Science City','Shela','Shilaj',
+   'Diwali','Navratri','Uttarayan','Holi','Dussehra','Janmashtami','Ganesh Chaturthi'].forEach(add);
   // longest first so "Savya Sky 2" wins over "Savya Sky"
   _properNouns=Object.keys(map).sort((a,b)=>b.length-a.length).map(k=>[new RegExp('\\b'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','gi'),map[k]]);
   _properKey=key;return _properNouns;
@@ -1524,7 +1538,12 @@ function getHotLeads(){
       requirement:[d.bhk,d.property].filter(Boolean).join(' ')||[lead?.['Property Type'],lead?.['Property']].filter(Boolean).join(' ')||d.propertyFor||'—',
       location:normaliseValue(h?.r['Locations'])||lead?.['Property Location']||'',
       project:lead?.['Project Name']||'',
-      note:tidyNote(d.description),
+      ...(()=>{                                  // Hot note, else latest call note from the CRM
+        const n=tidyNote(d.description);if(n||!lead)return{note:n,noteSource:n?'hot':''};
+        const calls=[1,2,3].map(k=>{const o=['1st','2nd','3rd'][k-1];return{t:normaliseValue(lead[`Latest ${o} Call Details`]),d:parseDate(lead[`Latest ${o} Call Date`])};})
+          .filter(c=>c.t).sort((a,b)=>(b.d||0)-(a.d||0));
+        return calls.length?{note:tidyNote(calls[0].t),noteSource:'call',noteDate:calls[0].d}:{note:'',noteSource:''};
+      })(),
       hasHistory:!!h,
       markedAt:h?h.r['Created Date']:'', t:h?h.t:0,
       days:h&&h.t?Math.max(0,Math.floor((now-h.t)/86400000)):null,
@@ -1558,7 +1577,7 @@ function drillHotLeads(which){
   const list=which==='closed'?all.filter(h=>h.closed):which==='open'?all.filter(h=>!h.closed):all;
   const rows=list.map(h=>[escHtml(h.name),`<span class="mono">${escHtml(h.mobile)}</span>`,escHtml(h.requirement),escHtml(h.location||'—'),
     escHtml(h.by),h.markedAt?`<span class="mono">${fmtDate(h.markedAt)}</span>`:'—',h.days==null?'—':h.days,
-    `<span class="note-cell">${escHtml(h.note||'—')}</span>`,
+    `<span class="note-cell">${h.noteSource==='call'?'<b>Last call:</b> ':''}${escHtml(h.note||'—')}</span>`,
     h.closed?`<span class="badge b-green">Closed ${fmtDate(h.closedOn)}</span>`:'<span class="badge b-red">Open</span>']);
   const title=which==='closed'?'Hot Leads — Closed':which==='open'?'Hot Leads — Open':'Hot Leads';
   showDrill(`${title} (${list.length})`,rows,['Client','Mobile','Requirement','Location','Marked Hot By','Marked Hot On','Days Hot','Note','Status']);
@@ -1604,7 +1623,7 @@ function renderHome(){
       <div class="hm-hot-main">
         <div class="hm-hot-name">${escHtml(h.name)}</div>
         <div class="hm-hot-sub">${escHtml([h.requirement,h.location].filter(x=>x&&x!=='—').join(' · ')||'—')}</div>
-        ${h.note?`<div class="hm-hot-note">${escHtml(h.note)}</div>`:''}
+        ${h.note?`<div class="hm-hot-note">${h.noteSource==='call'?`<span class="hm-note-tag">Last call${h.noteDate?' · '+fmtDate(h.noteDate):''}</span> `:''}${escHtml(h.note)}</div>`:''}
       </div>
       <div class="hm-hot-side"><div class="hm-hot-owner">${escHtml(h.by)}</div>${h.days!=null?`<div class="hm-hot-age">${h.days===0?'Today':h.days===1?'1 day':h.days+' days'}</div>`:''}</div>
     </div>`).join('');

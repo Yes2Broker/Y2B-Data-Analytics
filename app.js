@@ -1880,9 +1880,10 @@ function renderOwner(){
     om[l].leads,om[l].calls,om[l].visits,
     `<span class="badge b-blue">${om[l].revisits}</span>`,
     om[l].inactive,om[l].scheduled,om[l].converted,
-    `<span class="badge ${om[l].visitRate>=30?'b-green':om[l].visitRate>=15?'b-amber':'b-red'}">${om[l].visitRate}%</span>`,
-    `<span class="badge ${om[l].closureRate>=20?'b-green':om[l].closureRate>=10?'b-amber':'b-red'}">${om[l].closureRate}%</span>`,
-    `<span class="badge b-blue">${om[l].revisitRate}%</span>`,
+    // "—" when there is nothing to divide by (no calls / no visits)
+    om[l].calls>0?`<span class="badge ${om[l].visitRate>=30?'b-green':om[l].visitRate>=15?'b-amber':'b-red'}">${om[l].visitRate}%</span>`:'—',
+    om[l].visits>0?`<span class="badge ${om[l].closureRate>=20?'b-green':om[l].closureRate>=10?'b-amber':'b-red'}">${om[l].closureRate}%</span>`:'—',
+    om[l].visits>0?`<span class="badge b-blue">${om[l].revisitRate}%</span>`:'—',
     Math.round(om[l].leads/d.length*100)+'%'
   ]);
   const totalConverted=getFilteredConverted().length;
@@ -2486,7 +2487,8 @@ function renderLifecycle(){
   if(!lcWrap)return;
 
   // Hero funnel band — headline of the whole journey: Leads In → Closures
-  const overallConv=total?Math.round(converted/total*100):0;
+  const overallRaw=total?converted/total*100:0;        // same rounding as Home (0.2%)
+  const overallConv=overallRaw>0&&overallRaw<10?overallRaw.toFixed(1).replace(/\.0$/,''):Math.round(overallRaw);
   const hero=`
     <div class="lc-hero">
       <div class="lc-hero-end">

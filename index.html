@@ -59,8 +59,9 @@
   </div>
 
   <nav class="sidebar-nav">
-    <span class="nav-label">Analytics</span>
-    <a class="nav-item active" data-section="overview"><i data-lucide="layout-dashboard" class="nav-icon"></i>Overview</a>
+    <a class="nav-item nav-home active" data-section="home"><i data-lucide="home" class="nav-icon"></i>Home</a>
+    <span class="nav-label" style="margin-top:8px">Analytics</span>
+    <a class="nav-item" data-section="overview"><i data-lucide="layout-dashboard" class="nav-icon"></i>Lead Summary</a>
     <a class="nav-item" data-section="platform"><i data-lucide="radio" class="nav-icon"></i>Platform &amp; Source</a>
     <a class="nav-item" data-section="owner"><i data-lucide="users" class="nav-icon"></i>Owner-wise Leads</a>
     <a class="nav-item" data-section="status"><i data-lucide="activity" class="nav-icon"></i>Lead Status</a>
@@ -93,7 +94,7 @@
 
   <header class="topbar">
     <button class="hamburger" onclick="toggleSidebar()"><i data-lucide="menu"></i></button>
-    <span class="topbar-title" id="pageTitle">Overview</span>
+    <span class="topbar-title" id="pageTitle">Home</span>
 
     <div class="time-toggle">
       <button class="tg active" onclick="setGranularity('daily',this)">Daily</button>
@@ -134,9 +135,12 @@
   <!-- DASHBOARD -->
   <div class="dashboard" id="dashboard" style="display:none">
 
-    <!-- OVERVIEW -->
-    <section class="section active" id="section-overview">
-      <div class="sec-head"><h2 class="sec-title">Overview</h2><span class="rec-badge" id="overviewCount"></span></div>
+    <!-- HOME — default landing page, content injected by app.js (renderHome) -->
+    <section class="section active" id="section-home"></section>
+
+    <!-- LEAD SUMMARY (formerly "Overview") -->
+    <section class="section" id="section-overview">
+      <div class="sec-head"><h2 class="sec-title">Lead Summary</h2><span class="rec-badge" id="overviewCount"></span></div>
       <div class="kpi-grid" id="kpiGrid"></div>
       <div class="charts-row">
         <div class="chart-card wide">

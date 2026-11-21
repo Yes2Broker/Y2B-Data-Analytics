@@ -1452,3 +1452,84 @@ tbody tr:hover { background: var(--blue-50) !important; }
 .cfg-footer { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 16px; }
 .cfg-dirty { font-size: 12px; color: var(--s400); margin-right: auto; font-weight: 500; }
 .btn-primary.cfg-has-changes { box-shadow: 0 0 0 3px rgba(37,99,235,.18); }
+
+/* ================================================================
+   HOME — minimal landing page (.hm-*)
+   ================================================================ */
+#section-home { max-width: 1280px; }
+.hm-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
+.hm-title { font-size: 24px; font-weight: 800; color: var(--s900); letter-spacing: -.4px; }
+.hm-range { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--s500); }
+
+.hm-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.hm-sum { background: var(--white); border: 1px solid var(--s200); border-radius: 12px; padding: 16px 18px; }
+.hm-sum-lbl { font-size: 12.5px; font-weight: 600; color: var(--s500); }
+.hm-sum-val { font-size: 30px; font-weight: 800; color: var(--s900); letter-spacing: -.8px; line-height: 1.15; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.hm-sum-note { font-size: 12px; color: var(--s500); margin-top: 2px; }
+.hm-sum-hot { cursor: pointer; }
+.hm-sum-hot .hm-sum-val { color: var(--rose); }
+.hm-sum-win .hm-sum-val { color: var(--emerald); }
+
+.hm-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; margin-bottom: 16px; }
+.hm-card { background: var(--white); border: 1px solid var(--s200); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+.hm-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.hm-card-head h3 { font-size: 15px; font-weight: 700; color: var(--s900); display: flex; align-items: center; gap: 8px; }
+.hm-hint { font-size: 12px; color: var(--s400); }
+.hm-count { font-size: 12px; font-weight: 700; color: var(--rose); background: #fef2f2; border-radius: 999px; padding: 2px 9px; }
+.hm-link { border: 0; background: none; color: var(--blue-500); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.hm-link:hover { text-decoration: underline; }
+
+/* lifecycle rows */
+.hm-stages { display: flex; flex-direction: column; }
+.hm-stage { display: grid; grid-template-columns: 10px 1fr 48px 72px; align-items: center; gap: 12px;
+  width: 100%; padding: 10px 6px; border: 0; border-bottom: 1px solid var(--s100); background: none;
+  font: inherit; text-align: left; cursor: pointer; border-radius: 6px; transition: background var(--tr); }
+.hm-stage:last-child { border-bottom: 0; }
+.hm-stage:hover { background: var(--s50); }
+.hm-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.hm-stage-txt { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.hm-stage-lbl { font-size: 14px; font-weight: 600; color: var(--s800); }
+.hm-bar { height: 5px; background: var(--s100); border-radius: 99px; overflow: hidden; }
+.hm-bar > span { display: block; height: 100%; background: var(--c); border-radius: 99px; }
+.hm-stage-pct { font-size: 12.5px; color: var(--s500); text-align: right; font-variant-numeric: tabular-nums; }
+.hm-stage-val { font-size: 17px; font-weight: 800; color: var(--s900); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* hot leads */
+.hm-hot { display: flex; flex-direction: column; }
+.hm-hot-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--s100); }
+.hm-hot-row:last-child { border-bottom: 0; }
+.hm-hot-main { min-width: 0; }
+.hm-hot-name { font-size: 14px; font-weight: 600; color: var(--s800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hm-hot-sub { font-size: 12.5px; color: var(--s500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.hm-hot-owner { font-size: 12.5px; color: var(--s600); background: var(--s100); border-radius: 999px; padding: 3px 10px; white-space: nowrap; flex-shrink: 0; }
+.hm-empty { padding: 28px 0; text-align: center; color: var(--s400); font-size: 13px; }
+
+/* employee table */
+.hm-tbl-wrap { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }
+.hm-tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.hm-tbl thead tr { background: none; }
+.hm-tbl th { text-align: right; font-size: 12px; font-weight: 600; color: var(--s500); padding: 10px 12px;
+  border-bottom: 1px solid var(--s200); white-space: nowrap; background: none; text-transform: none; letter-spacing: 0; }
+.hm-tbl td { text-align: right; padding: 12px; border-bottom: 1px solid var(--s100); color: var(--s700); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hm-tbl tbody tr:hover td { background: var(--s50); }
+.hm-tbl .hm-emp { text-align: left; }
+.hm-tbl th:first-child, .hm-tbl td.hm-rank { text-align: left; width: 32px; color: var(--s400); }
+.hm-tbl td.hm-emp a { color: var(--s900); font-weight: 600; cursor: pointer; }
+.hm-tbl td a { cursor: pointer; color: inherit; }
+.hm-tbl td a:hover { color: var(--blue-500); text-decoration: underline; }
+.hm-tbl .hm-strong { font-weight: 700; color: var(--s900); }
+.hm-tbl .hm-muted { color: var(--s500); }
+.hm-tbl tfoot td { font-weight: 700; color: var(--s900); border-top: 1px solid var(--s200); border-bottom: 0; background: var(--s50); }
+.hm-top { margin-left: 8px; font-size: 11px; font-weight: 700; color: var(--emerald); background: #ecfdf5; border-radius: 999px; padding: 2px 8px; }
+
+@media (max-width: 1024px) {
+  .hm-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .hm-summary { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .hm-sum { padding: 14px; }
+  .hm-sum-val { font-size: 24px; }
+  .hm-card { padding: 16px; }
+  .hm-tbl-wrap { margin: 0 -16px; padding: 0 16px; }
+  .hm-stage { grid-template-columns: 10px 1fr 40px 56px; gap: 10px; }
+}

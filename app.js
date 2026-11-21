@@ -177,11 +177,16 @@ async function doLogin(){
   try{
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
     const d=await r.json();
-    if(d.ok){ inp.value=''; hideLogin(); loadAll(); }
+    if(d.ok){ inp.value=''; hideLogin(); openHomeOnLoad(); loadAll(); }
     else if(r.status===500){ err.textContent='Server auth is not configured. Contact the admin.'; }
     else { err.textContent='Incorrect password.'; inp.value=''; inp.focus(); }
   }catch(_){ err.textContent='Could not reach the server. Check your connection.'; }
   btn.disabled=false;btn.textContent='Unlock Dashboard';
+}
+// A fresh login always lands on Home (drop any remembered section)
+function openHomeOnLoad(){
+  const p=new URLSearchParams(window.location.search);p.delete('s');
+  history.replaceState(null,'',p.toString()?`?${p}`:location.pathname);
 }
 async function doLogout(){
   try{ await fetch('/api/logout',{method:'POST'}); }catch(_){}
@@ -198,7 +203,7 @@ function setupNav(){
     });
   });
 }
-const TITLES={overview:'Overview',platform:'Platform & Source',owner:'Owner-wise Leads',
+const TITLES={home:'Home',overview:'Lead Summary',platform:'Platform & Source',owner:'Owner-wise Leads',
   status:'Lead Status',calls:'Call Analytics',visits:'Site Visits',budget:'Budget & Property',
   converted:'Converted Leads',comparison:'Employee Comparison',lifecycle:'Lead Lifecycle',
   'leads-table':'All Leads',admin:'Admin',configuration:'Configuration'};
@@ -468,7 +473,7 @@ function applyFilters(){
   drillFilter=null; activeDrillSection=null;
   invalidate();
   const sec=document.querySelector('.section.active')?.id?.replace('section-','');
-  pushURL(sec||'overview');
+  pushURL(sec||'home');
   if(sec)renderSection(sec);
 }
 function clearFilters(){
@@ -480,7 +485,7 @@ function clearFilters(){
   buildFilterDropdowns();
   invalidate();
   const sec=document.querySelector('.section.active')?.id?.replace('section-','');
-  pushURL(sec||'overview');
+  pushURL(sec||'home');
   if(sec)renderSection(sec);
 }
 
@@ -682,7 +687,7 @@ async function loadAll(){
     allStatuses =[...new Set(masterCache.map(r=>r['Status Name']).filter(Boolean))].sort();
     buildCompanySwitcher();updateCompanyBadge();buildFilterDropdowns();buildCompCheckboxes();
     showDashboard();
-    const urlSec=new URLSearchParams(window.location.search).get('s')||'overview';
+    const urlSec=new URLSearchParams(window.location.search).get('s')||'home';
     switchSection(urlSec);
     document.getElementById('lastUpdated').textContent='Updated '+new Date().toLocaleTimeString()+' · '+masterCache.length.toLocaleString()+' leads';
   }catch(err){showError(err.message);console.error(err);}
@@ -721,7 +726,7 @@ function switchCompany(id){
   fOwners.clear();fSources.clear();fStatuses.clear();fFrom='';fTo='';
   invalidate();invalidateMobileIndex();buildCompanySwitcher();updateCompanyBadge();buildFilterDropdowns();
   const sec=document.querySelector('.section.active')?.id?.replace('section-','');
-  renderSection(sec||'overview');
+  renderSection(sec||'home');
 }
 function updateCompanyBadge(){const b=document.getElementById('activeCompanyBadge');if(b)b.textContent=activeCompany===Y2B_ID?'yes2broker':companies.find(c=>c.id==activeCompany)?.name||'';}
 function openCompanyModal(editId=null){
@@ -1249,7 +1254,7 @@ function showConfirm(title,msg,onOk){
 }
 
 // ── SECTION ROUTER ────────────────────────────────────────────
-const RENDERERS={overview:renderOverview,platform:renderPlatform,owner:renderOwner,
+const RENDERERS={home:renderHome,overview:renderOverview,platform:renderPlatform,owner:renderOwner,
   status:renderStatus,calls:renderCalls,visits:renderVisits,budget:renderBudget,
   converted:renderConverted,comparison:renderComparison,lifecycle:renderLifecycle,
   'leads-table':renderLeadsTable,admin:renderAdmin,configuration:renderConfiguration};
@@ -1347,6 +1352,99 @@ function getMetrics(d){
   const closureRate =visitsDone>0?Math.round(converted/visitsDone*100):0;
   const revisitRate =visitsDone>0?Math.round(revisits/visitsDone*100):0;
   return{totalLeads,totalCalls,visitsDone,revisits,converted,inactive,warm,hot,active:active.length,visitRate,closureRate,revisitRate};
+}
+
+// ── HOME (default landing page) ───────────────────────────────
+// A calm, at-a-glance page: lifecycle funnel, hot leads, and the employee
+// performance table. Uses the exact same numbers as Lead Lifecycle and
+// Employee Comparison, and respects the topbar filters.
+function homeRangeText(){
+  const f=s=>new Date(s+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+  if(fFrom&&fTo)return`${f(fFrom)} – ${f(fTo)}`;
+  if(fFrom)return`Since ${f(fFrom)}`;
+  if(fTo)return`Up to ${f(fTo)}`;
+  return'All time';
+}
+function renderHome(){
+  const el=document.getElementById('section-home');if(!el)return;
+  const {stages,total,converted}=getLifecycleData();
+  const overall=total?Math.round(converted/total*100):0;
+  const n=v=>Number(v||0).toLocaleString();
+
+  // 1 — Lifecycle
+  const maxVal=Math.max(...stages.map(s=>s.val),1);
+  const stageRows=stages.map(s=>{
+    const w=Math.max(Math.round(s.val/maxVal*100),s.val?2:0);
+    return`<button class="hm-stage" onclick="${s.drillFn.replace(/"/g,"'")}" style="--c:${s.color}">
+      <span class="hm-dot"></span>
+      <span class="hm-stage-txt"><span class="hm-stage-lbl">${s.label}</span><span class="hm-bar"><span style="width:${w}%"></span></span></span>
+      <span class="hm-stage-pct">${s.pct!==null?s.pct+'%':''}</span>
+      <span class="hm-stage-val">${n(s.val)}</span>
+    </button>`;
+  }).join('');
+
+  // 2 — Hot leads (Status = Hot in CRM)
+  const hot=getFiltered().filter(r=>r['Status Name']==='Hot')
+    .sort((a,b)=>(parseDate(b['Created Date'])||0)-(parseDate(a['Created Date'])||0));
+  const hotList=hot.slice(0,8).map(r=>{
+    const name=`${r['FirstName']||''} ${r['LastName']||''}`.trim()||'—';
+    return`<div class="hm-hot-row">
+      <div class="hm-hot-main"><div class="hm-hot-name">${escHtml(name)}</div><div class="hm-hot-sub">${escHtml(r['Project Name']||'No project')}</div></div>
+      <div class="hm-hot-owner">${escHtml(r['Owner Name']||'—')}</div>
+    </div>`;
+  }).join('')||`<div class="hm-empty">No hot leads for this selection</div>`;
+
+  // 3 — Employee performance
+  const d=getFiltered();
+  const {leadsByOwner,callsByOwner,visByOwner,revisitByOwner,convByOwner}=getEmployeeMaps(d);
+  const rate=(a,b)=>b?Math.round(a/b*100):0;
+  const emps=getCompEmployees().filter(o=>o&&o!=='Unknown').map(o=>{
+    const leads=(leadsByOwner[o]||[]).length,calls=callsByOwner[o]||0,vis=visByOwner[o]||0,rev=revisitByOwner[o]||0,conv=convByOwner[o]||0;
+    return{o,leads,calls,vis,rev,conv,vr:rate(vis,calls),rr:rate(rev,vis),cr:rate(conv,vis)};
+  }).filter(e=>e.leads||e.calls||e.vis||e.conv)
+    .sort((a,b)=>b.conv-a.conv||b.vis-a.vis||b.leads-a.leads);
+  const T=emps.reduce((t,e)=>{t.leads+=e.leads;t.calls+=e.calls;t.vis+=e.vis;t.rev+=e.rev;t.conv+=e.conv;return t;},{leads:0,calls:0,vis:0,rev:0,conv:0});
+  const topConv=emps[0]?.conv||0;
+  const q=o=>escHtml(o).replace(/'/g,"\\'");
+  const empRows=emps.map((e,i)=>`<tr>
+      <td class="hm-rank">${i+1}</td>
+      <td class="hm-emp"><a onclick="drillByOwner('${q(e.o)}')">${escHtml(e.o)}</a>${e.conv&&e.conv===topConv?'<span class="hm-top">Top</span>':''}</td>
+      <td>${n(e.leads)}</td><td>${n(e.calls)}</td><td>${n(e.vis)}</td><td>${n(e.rev)}</td>
+      <td class="hm-strong">${e.conv?`<a onclick="drillConvByOwner('${q(e.o)}')">${n(e.conv)}</a>`:'0'}</td>
+      <td class="hm-muted">${e.vr}%</td><td class="hm-muted">${e.rr}%</td><td class="hm-strong">${e.cr}%</td>
+    </tr>`).join('')||`<tr><td colspan="10" class="hm-empty">No employee activity for this selection</td></tr>`;
+
+  el.innerHTML=`
+    <div class="hm-head">
+      <div><h2 class="hm-title">Home</h2><div class="hm-range"><i data-lucide="calendar" style="width:13px;height:13px"></i>${homeRangeText()}</div></div>
+    </div>
+
+    <div class="hm-summary">
+      <div class="hm-sum"><div class="hm-sum-lbl">Leads in</div><div class="hm-sum-val">${n(total)}</div></div>
+      <div class="hm-sum"><div class="hm-sum-lbl">Site visits</div><div class="hm-sum-val">${n(stages.find(s=>s.id==='lc-visited')?.val)}</div></div>
+      <div class="hm-sum hm-sum-hot" onclick="drillByStatus('Hot')"><div class="hm-sum-lbl">Hot leads</div><div class="hm-sum-val">${n(hot.length)}</div></div>
+      <div class="hm-sum hm-sum-win"><div class="hm-sum-lbl">Closures</div><div class="hm-sum-val">${n(converted)}</div><div class="hm-sum-note">${overall}% of leads</div></div>
+    </div>
+
+    <div class="hm-grid">
+      <div class="hm-card">
+        <div class="hm-card-head"><h3>Lead Lifecycle</h3><span class="hm-hint">Tap a stage for details</span></div>
+        <div class="hm-stages">${stageRows}</div>
+      </div>
+      <div class="hm-card">
+        <div class="hm-card-head"><h3>Hot Leads <span class="hm-count">${n(hot.length)}</span></h3>${hot.length?`<button class="hm-link" onclick="drillByStatus('Hot')">View all</button>`:''}</div>
+        <div class="hm-hot">${hotList}</div>
+      </div>
+    </div>
+
+    <div class="hm-card">
+      <div class="hm-card-head"><h3>Employee Performance</h3><span class="hm-hint">Sorted by closures · tap a name for leads</span></div>
+      <div class="hm-tbl-wrap"><table class="hm-tbl">
+        <thead><tr><th>#</th><th class="hm-emp">Employee</th><th>Leads</th><th>Calls</th><th>Visits</th><th>Revisits</th><th>Closed</th><th>Visit %</th><th>Revisit %</th><th>Closure %</th></tr></thead>
+        <tbody>${empRows}</tbody>
+        ${emps.length?`<tfoot><tr><td></td><td class="hm-emp">Total</td><td>${n(T.leads)}</td><td>${n(T.calls)}</td><td>${n(T.vis)}</td><td>${n(T.rev)}</td><td>${n(T.conv)}</td><td>${rate(T.vis,T.calls)}%</td><td>${rate(T.rev,T.vis)}%</td><td>${rate(T.conv,T.vis)}%</td></tr></tfoot>`:''}
+      </table></div>
+    </div>`;
 }
 
 // ── OVERVIEW ──────────────────────────────────────────────────
@@ -1996,9 +2094,8 @@ function buildCompCheckboxes(){
 }
 function toggleComp(el){const o=el.dataset.owner;if(compSelected.has(o)){compSelected.delete(o);el.classList.remove('checked');}else{compSelected.add(o);el.classList.add('checked');}renderSection('comparison');}
 
-function renderComparison(){
-  const metric=document.getElementById('compMetric')?.value||'leads';
-  const d=getFiltered(),owners=[...compSelected];if(!owners.length)return;
+// Per-employee maps shared by Employee Comparison and Home
+function getEmployeeMaps(d){
   const allConv=getFilteredConverted();
   // Per-owner visit + revisit maps from the proper visit source
   const visits=getFilteredVisits();
@@ -2013,6 +2110,13 @@ function renderComparison(){
   // Per-employee lead subset (may be empty for pure visit-staff)
   const leadsByOwner={};d.forEach(r=>{const o=r['Owner Name']||'Unknown';(leadsByOwner[o]=leadsByOwner[o]||[]).push(r);});
   const callsByOwner={};Object.keys(leadsByOwner).forEach(o=>{callsByOwner[o]=leadsByOwner[o].reduce((t,r)=>t+callCount(r),0);});
+  return {leadsByOwner,callsByOwner,visByOwner,revisitByOwner,convByOwner};
+}
+
+function renderComparison(){
+  const metric=document.getElementById('compMetric')?.value||'leads';
+  const d=getFiltered(),owners=[...compSelected];if(!owners.length)return;
+  const {leadsByOwner,callsByOwner,visByOwner,revisitByOwner,convByOwner}=getEmployeeMaps(d);
   // All metrics keyed directly by employee name
   const fn={
     leads:  o=>(leadsByOwner[o]||[]).length,
@@ -2073,7 +2177,7 @@ function renderComparison(){
 }
 
 // ── LIFECYCLE ─────────────────────────────────────────────────
-function renderLifecycle(){
+function getLifecycleData(){
   const d=getFiltered();
   const m=getMetrics(d);
   const total        =d.length;
@@ -2104,6 +2208,10 @@ function renderLifecycle(){
     {id:'lc-closed',icon:'check-circle',label:'Closure',val:converted,color:'#10b981',desc:`Closure rate: ${closureRate}% of visits`,pct:closureRate,drillFn:'drillLC("closed")'},
   ];
 
+  return {stages,total,converted,closureRate};
+}
+function renderLifecycle(){
+  const {stages,total,converted,closureRate}=getLifecycleData();
   const lcWrap=document.getElementById('lifecycleStages');
   if(!lcWrap)return;
 

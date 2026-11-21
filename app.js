@@ -674,7 +674,7 @@ async function loadAll(){
     }catch(e){ console.error('convertion load failed:',e); convertedCache=[]; showToast('Could not load Conversions: '+e.message,'error'); }
     try{
       hotCache = await sbFetchAll('hot_leads','*','');
-    }catch(e){ console.warn('hot_leads not loaded (table missing or empty):',e.message); hotCache=[]; }
+    }catch(e){ console.error('hot_leads load failed:',e); hotCache=[]; showToast('Could not load Hot Leads activity data: '+e.message,'error'); }
     companies     =await loadCompanies();
     visitSourceConfig = await loadVisitSourceConfig();
     allProjects =[...new Set(masterCache.map(r=>r['Project Name']).filter(Boolean))].sort();

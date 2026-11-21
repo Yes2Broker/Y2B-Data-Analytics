@@ -512,13 +512,13 @@ function dbHandleFile(file) {
 function dbReadCSV(file) {
   const reader = new FileReader();
   reader.onload = e => {
-    const lines = e.target.result.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) { dbShowInlineError('CSV has no data rows.'); return; }
-    const headers = parseCSVLine(lines[0]).map(h => h.trim());
+    const table = parseCSV(e.target.result);
+    if (table.length < 2) { dbShowInlineError('CSV has no data rows.'); return; }
+    const headers = table[0].map(h => h.trim());
     const rows = [];
-    for (let i = 1; i < lines.length; i++) {
-      const vals = parseCSVLine(lines[i]);
-      if (vals.every(v => !v.trim())) continue;
+    for (let i = 1; i < table.length; i++) {
+      const vals = table[i];
+      if (vals.every(v => !String(v).trim())) continue;
       const row = {};
       headers.forEach((h, j) => { row[h] = (vals[j] || '').trim(); });
       rows.push(row);
@@ -527,6 +527,30 @@ function dbReadCSV(file) {
     dbShowPreview(headers, rows);
   };
   reader.readAsText(file);
+}
+
+// RFC-4180 CSV: quoted fields may contain commas, line breaks and "" (escaped quote).
+// CRM exports put multi-line notes inside quotes, so the file can't be split by line.
+function parseCSV(text) {
+  text = String(text).replace(/^\uFEFF/, '');
+  const rows = []; let row = [], cur = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += ch;
+      continue;
+    }
+    if (ch === '"') { inQ = true; continue; }
+    if (ch === ',') { row.push(cur); cur = ''; continue; }
+    if (ch === '\r') continue;
+    if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows;
 }
 
 function dbReadXLSX(file) {
@@ -561,18 +585,6 @@ function dbParseXLSX(file) {
     }
   };
   reader.readAsArrayBuffer(file);
-}
-
-function parseCSVLine(line) {
-  const result = []; let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') { inQ = !inQ; continue; }
-    if (ch === ',' && !inQ) { result.push(cur); cur = ''; continue; }
-    cur += ch;
-  }
-  result.push(cur);
-  return result;
 }
 
 // ── PREVIEW + VALIDATION ──────────────────────────────────────

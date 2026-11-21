@@ -1392,7 +1392,7 @@ const NOTE_SPELLING={
   famliy:'family',familly:'family',freind:'friend',budjet:'budget',buget:'budget',
   loaction:'location',locaton:'location',availble:'available',avilable:'available',
   posession:'possession',possesion:'possession',posesion:'possession',
-  pluss:'plus',
+  pluss:'plus',panthouse:'penthouse',penthous:'penthouse',
   confrim:'confirm',confirmd:'confirmed',discus:'discuss',dicussion:'discussion',
   becuase:'because',becasue:'because',bcz:'because',bcoz:'because',coz:'because',
   abt:'about',pls:'please',plz:'please',ur:'your',wth:'with',
@@ -1404,6 +1404,9 @@ const NOTE_PHRASES=[
   [/\b(client|customer)\s+(is\s+)?confuse\b/gi,'$1 is confused'],
   [/\b(he|she|they)\s+let\s+me\s+know\b/gi,'$1 will let me know'],
   [/\bint in\b/gi,'interested in'],
+  [/\bmake\s+call\s*:?\s*-?\s*(?=\d)/gi,'Make call on '],
+  [/\bcnr\b\s*:?\s*-?\s*(?=\d)/gi,'Call not received on '],[/\bcnr\b/gi,'call not received'],
+  [/\b(requirement|budget|area|location|possession)\s*[-:]\s*/gi,(m,w)=>w[0].toUpperCase()+w.slice(1).toLowerCase()+': '],
   [/^walking$/i,'walk-in'],
   [/\bre\s+visit\b/gi,'revisit'],
   [/\bnot\s+pick(ing)?\s+(up\s+)?(the\s+)?call\b/gi,'not picking up the call'],
@@ -1445,7 +1448,10 @@ function getProperNouns(){
   _properKey=key;return _properNouns;
 }
 function tidyNote(t){
-  t=String(t||'').replace(/\s+/g,' ').trim();if(!t)return'';
+  t=String(t||'').replace(/^"+|"+$/g,'')
+    .replace(/\s*[\r\n]+\s*/g,(m,off,str)=>/[.!?,;:]$/.test(str.slice(0,off).trimEnd())?' ':'. ')  // line breaks -> sentence breaks
+    .replace(/\s+/g,' ').trim();
+  if(!t)return'';
   // spelling (whole words, keep a leading capital)
   t=t.replace(/\b[A-Za-z]+\b/g,w=>{const f=NOTE_SPELLING[w.toLowerCase()];if(!f)return w;return /^[A-Z]/.test(w)?f[0].toUpperCase()+f.slice(1):f;});
   NOTE_PHRASES.forEach(([re,to])=>{t=t.replace(re,to);});
@@ -1456,6 +1462,9 @@ function tidyNote(t){
      .replace(/\.(?=[A-Za-z]{2})/g,'. ')             // "done.client" -> "done. client"
      .replace(/\.{2,}/g,'.').replace(/\s{2,}/g,' ').trim();
   t=t.replace(/(^|[.!?]\s+)([a-z])/g,(_,p,c)=>p+c.toUpperCase());  // sentence case
+  // drop repeated sentences (CRM auto-notes often repeat "Make call on …")
+  const seen=new Set();
+  t=t.split(/(?<=[.!?])\s+/).filter(x=>{const k=x.toLowerCase().replace(/[.!?]+$/,'');if(seen.has(k))return false;seen.add(k);return true;}).join(' ');
   return /[.!?]$/.test(t)?t:t+'.';
 }
 function getHotLeads(){

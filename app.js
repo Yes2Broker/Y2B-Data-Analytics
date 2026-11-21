@@ -58,6 +58,7 @@ const CANONICAL = {
   'inactive':'Inactive','new':'New','call not received':'Call Not Received','cnr':'Call Not Received',
   'active':'Active','site visit schedule':'Site Visit Schedule','site visit scheduled':'Site Visit Schedule',
   'site visit done':'Site Visit Done','cold':'Cold','warm':'Warm','hot':'Hot','converted':'Converted',
+  'booked':'Converted','booking':'Converted','booking done':'Converted',   // Booked = Converted
   '99acres':'99 Acres','99 acres':'99 Acres','magicbricks':'Magicbricks','magic bricks':'Magicbricks',
   'housing':'Housing','housing.com':'Housing','walk in':'Walk In','walkin':'Walk In',
   'facebook':'Facebook/Digital Marketing','facebook/digital marketing':'Facebook/Digital Marketing',

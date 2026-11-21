@@ -72,12 +72,11 @@ function canon(v){
   const l=t.toLowerCase();
   return CANONICAL[t]||CANONICAL[l]||titleCase(t);
 }
+// Calls made on a lead = CRM "Make Call Count". Empty means never called: in the
+// CRM export every lead without a count also has no call notes at all.
 function callCount(r){
   const c=parseInt(r['Make Call Count']);
-  if(!isNaN(c)&&c>0)return c;
-  // null/0/empty: default to 1 UNLESS status is "New" (then keep 0)
-  const status=(r['Status Name']||'').toLowerCase();
-  return status==='new'?0:1;
+  return !isNaN(c)&&c>0?c:0;
 }
 function normaliseRow(r){
   const o={...r};
@@ -2053,14 +2052,25 @@ function renderCalls(){
     ['Total: '+d.length,'','',tCalls,'','','','','','']);
   renderPagination('callPg','callTable',d.length);
 }
-// Categorize a lead's 1st-call outcome (shared by chart + drill)
+// Outcome of the lead's most recent call ("Latest 1st Call Details" is the newest
+// call in the CRM export). Rules are checked in order; spelling variants that
+// sales staff actually use are included.
+const CALL_OUTCOMES=[
+  ['Not Interested', /(not coming|won'?t come|will not come|no visit)/],   // negatives before "visit"
+  ['Visit Planned / Done',/\b(visit|schedul|meeting|will come|coming)/],
+  ['Already Purchased',/(purchas|already (bought|booked)|done (other|from other|somewhere)|bought|other side|booked (other|elsewhere))/],
+  ['Duplicate / Junk',/(duplicate|same lead|broker|\btest|glitch|spam|junk|fake|by mistake|timepass|time pass)/],
+  ['Wrong / Invalid Number',/(wrong|invalid|not valid|doesn'?t exist|does not exist|not exist|out of service|not in service|incorrect|no such|number blocked|blocked|number not (working|available)|incoming barred|not connecting)/],
+  ['Unreachable',    /(switch(ed)? ?off|not reachable|unreachable|out of (coverage|network)|bus+y|phone close|number close|incom+ing call(ing|s)? (close|are not|not)|can'?t receive|voice ?mail|temporar)/],
+  ['Not Received',   /(\bcnr\b|not (received|recieved|recived|pick|picking|answer|responding|lift)|didn'?t (answer|pick|receive)|no answer|no response|call cut|\bcc\b|disconnect|ringing|many times call|call back|call later|make call|recording|not respon)/],
+  ['Not Interested', /(not (interest|intrest|intersted|intrested|intested|requir|required|need|enq|enu|inq|looking|search)|no (any )?(req|requirement|requirment|need|interest|plan)|note interested|not plan|plan pos|no inquiry|no more interested|nathi|plan (cancel|drop|postpone)|cancel|dropped)/],
+  ['Budget Issue',   /(budget|low price|price issue|expensive|costly)/],
+  ['Location / Other Mismatch',/(out of (city|loc)|other loc|location|loction|out of state|cast|community|no options?)/],
+];
 function callOutcomeOf(r){
-  const det=(r['Latest 1st Call Details']||'').toLowerCase().trim();
-  if(!det)return 'No Call';
-  if(det.includes('not interested'))return 'Not Interested';
-  if(det.includes('cnr')||det.includes('not received'))return 'Not Received';
-  if(det.includes('out of service')||det.includes('switched off'))return 'Unreachable';
-  if(det.includes('visit')||det.includes('schedule'))return 'Visit Planned';
+  const det=(r['Latest 1st Call Details']||'').toLowerCase().replace(/\s+/g,' ').trim();
+  if(!det||/^[.\-:,\s]*$/.test(det))return callCount(r)>0?'Connected':'No Call';
+  for(const [label,re] of CALL_OUTCOMES)if(re.test(det))return label;
   return 'Connected';
 }
 function drillCallOutcome(outcome){
@@ -2271,7 +2281,7 @@ function renderConverted(){
   if(!rows.length){const el=document.getElementById('convertedKpiGrid');if(el)el.innerHTML='<p style="padding:20px;color:#94a3b8">No conversions for this selection.</p>';['convOwnerChart','convOwnerPie','convSourceBar'].forEach(id=>{if(chartInstances[id])chartInstances[id].destroy();});const w=document.getElementById('convTrendWrap');if(w)w.innerHTML='';fillTable('convTable',['Customer','Mobile','Project','Owner','Source','Date','Visits','Calls'],[]);renderPagination('convPg','convTable',0);return;}
   const isY2B=activeCompany===Y2B_ID;
   const totalVisits=rows.reduce((s,r)=>s+(parseInt(r['Site Visit Done Count'])||0),0);
-  const totalCalls=rows.reduce((s,r)=>s+(parseInt(r['Make Call Count'])||1),0);
+  const totalCalls=rows.reduce((s,r)=>s+(callCount(r)),0);
   const uniqueOwners=new Set(rows.map(r=>r['Owner Name']).filter(Boolean)).size;
   const uniqueSrc=new Set(rows.map(r=>r['Source Name']).filter(Boolean)).size;
   const m=getMetrics(getFiltered());
@@ -2305,7 +2315,7 @@ function renderConverted(){
     escHtml(r['Project Name']||r['Total Visited Projects Name']||'—'),
     escHtml(r['Owner Name']||'—'),escHtml(r['Source Name']||'—'),
     `<span class="mono">${fmtDate(r['Converted Date']||r['Created Date'])}</span>`,
-    r['Site Visit Done Count']||0,parseInt(r['Make Call Count'])||1
+    r['Site Visit Done Count']||0,callCount(r)
   ]);
   fillTable('convTable',['Customer','Mobile','Project','Owner','Source','Date','Visits','Calls'],rows2,
     ['Total: '+rows.length,'','','','','',totalVisits,totalCalls]);
@@ -2315,7 +2325,7 @@ function drillConv(type){
   const rows=getFilteredConverted();let filtered=[],title='';
   const isY2B=activeCompany===Y2B_ID;
   const getName=r=>(`${r['FirstName']||''} ${r['LastName']||''}`.trim())||r['CustomerName']||'—';
-  const fmt=r=>[escHtml(getName(r)),`<span class="mono">${escHtml(r['Mobile No.']||'—')}</span>`,escHtml(r['Owner Name']||'—'),escHtml(r['Source Name']||'—'),`<span class="mono">${fmtDate(r['Converted Date']||r['Created Date'])}</span>`,r['Site Visit Done Count']||0,parseInt(r['Make Call Count'])||1];
+  const fmt=r=>[escHtml(getName(r)),`<span class="mono">${escHtml(r['Mobile No.']||'—')}</span>`,escHtml(r['Owner Name']||'—'),escHtml(r['Source Name']||'—'),`<span class="mono">${fmtDate(r['Converted Date']||r['Created Date'])}</span>`,r['Site Visit Done Count']||0,callCount(r)];
   const hdrs=['Customer','Mobile','Owner','Source','Date','Visits','Calls'];
   switch(type){
     case 'all':     filtered=rows;title='All Conversions';break;

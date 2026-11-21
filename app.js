@@ -1467,56 +1467,96 @@ function tidyNote(t){
   t=t.split(/(?<=[.!?])\s+/).filter(x=>{const k=x.toLowerCase().replace(/[.!?]+$/,'');if(seen.has(k))return false;seen.add(k);return true;}).join(' ');
   return /[.!?]$/.test(t)?t:t+'.';
 }
+// Hot list — two sources, each used for what it is reliable at:
+//  • master_data "Status Name" = the CRM's CURRENT status of every lead (a full
+//    snapshot on each upload). This decides WHO is hot.
+//  • hot_leads (Activity Report) = history of status changes. It adds the note,
+//    when the lead was marked Hot and by whom. The CRM's activity export can
+//    silently drop date ranges, so it is never trusted to decide current status
+//    for a lead that master_data knows about.
+//  • A client found only in the Activity Report (not in master_data) counts as hot
+//    when their latest status change is Hot.
 function getHotLeads(){
-  if(!hotCache.length)return[];
-  // latest status change per mobile
-  const latest={};
+  // latest change, and latest *Hot* change, per mobile
+  const latest={},lastHot={};
   hotCache.forEach((r,i)=>{
     const mob=normMobile(r['Mobile No.']);if(!mob)return;
     const t=(parseDateTime(r['Created Date'])||new Date(0)).getTime();
-    const cur=latest[mob];
-    if(!cur||t>cur.t||(t===cur.t&&i>cur.i))latest[mob]={r,t,i};
-  });
-  // links to leads (project/owner/source + company scoping) and conversions
-  const leadByMob={};masterCache.forEach(r=>{const m=normMobile(r['Mobile No.']);if(m&&!leadByMob[m])leadByMob[m]=r;});
-  const companyLeadMobs=new Set(getCompanyLeads().map(r=>normMobile(r['Mobile No.'])).filter(Boolean));
-  const convByMob={};getCompanyConverted().forEach(r=>{const m=normMobile(r['Mobile No.']);if(m)convByMob[m]=r;});
-  const ownerSet=fOwners.size?new Set([...fOwners].map(normName)):null;
-  const now=Date.now();
-  const out=[];
-  Object.entries(latest).forEach(([mob,{r,t}])=>{
     const d=parseHotDetails(r['Activity Details']);
-    if(d.status.toLowerCase()!=='hot')return;
-    const lead=leadByMob[mob];
-    // company scope: Y2B keeps unmatched mobiles; a custom company needs a matching lead
-    if(lead?!companyLeadMobs.has(mob):activeCompany!==Y2B_ID)return;
-    const by=normName(r['User']);
-    if(ownerSet&&!ownerSet.has(by))return;
+    const rec={r,t,i,d};
+    const cur=latest[mob];
+    if(!cur||t>cur.t||(t===cur.t&&i>cur.i))latest[mob]=rec;
+    if(d.status.toLowerCase()==='hot'){const h=lastHot[mob];if(!h||t>h.t||(t===h.t&&i>h.i))lastHot[mob]=rec;}
+  });
+  const allLeadByMob={};masterCache.forEach(r=>{const m=normMobile(r['Mobile No.']);if(m&&!allLeadByMob[m])allLeadByMob[m]=r;});
+  const companyLeadByMob={};getCompanyLeads().forEach(r=>{const m=normMobile(r['Mobile No.']);if(m&&!companyLeadByMob[m])companyLeadByMob[m]=r;});
+  const convByMob={};getCompanyConverted().forEach(r=>{const m=normMobile(r['Mobile No.']);if(m)convByMob[m]=r;});
+
+  // candidates: master_data Hot leads (company-scoped) + activity-only hot clients
+  const cand=new Map();
+  Object.entries(companyLeadByMob).forEach(([m,lead])=>{if(lead['Status Name']==='Hot')cand.set(m,{lead,source:'crm'});});
+  if(activeCompany===Y2B_ID){
+    Object.entries(latest).forEach(([m,rec])=>{
+      if(!allLeadByMob[m]&&rec.d.status.toLowerCase()==='hot')cand.set(m,{lead:null,source:'activity'});
+    });
+  }
+
+  const ownerSet=fOwners.size?new Set([...fOwners].map(normName)):null;
+  const now=Date.now(),out=[];
+  cand.forEach(({lead,source},mob)=>{
+    const h=lastHot[mob];                        // may be missing (CRM export gap)
+    const by=h?normName(h.r['User']):normName(lead?.['Owner Name']);
+    const owner=lead?normName(lead['Owner Name']):by;
+    if(ownerSet&&!ownerSet.has(by)&&!ownerSet.has(owner))return;
     if(fSources.size&&!(lead&&fSources.has(lead['Source Name'])))return;
     if(fFrom||fTo){
-      const dt=parseDate(r['Created Date']);if(!dt)return;
+      const dt=h?parseDate(h.r['Created Date']):parseDate(lead?.['Created Date']);if(!dt)return;
       if(fFrom&&dt<new Date(fFrom+'T00:00:00'))return;
       if(fTo&&dt>new Date(fTo+'T23:59:59'))return;
     }
+    const d=h?h.d:{bhk:'',property:'',propertyFor:'',description:''};
+    const leadName=lead?`${lead['FirstName']||''} ${lead['LastName']||''}`.trim():'';
     const conv=convByMob[mob];
     out.push({
-      mobile:mob, name:normaliseValue(r['Name'])||'—', by,
-      requirement:[d.bhk,d.property].filter(Boolean).join(' ')||d.propertyFor||'—',
-      location:normaliseValue(r['Locations'])||lead?.['Property Location']||'',
+      mobile:mob, source,
+      name:normaliseValue(h?.r['Name'])||leadName||'—', by,
+      requirement:[d.bhk,d.property].filter(Boolean).join(' ')||[lead?.['Property Type'],lead?.['Property']].filter(Boolean).join(' ')||d.propertyFor||'—',
+      location:normaliseValue(h?.r['Locations'])||lead?.['Property Location']||'',
       project:lead?.['Project Name']||'',
       note:tidyNote(d.description),
-      markedAt:r['Created Date'], t,
-      days:t?Math.max(0,Math.floor((now-t)/86400000)):null,
+      hasHistory:!!h,
+      markedAt:h?h.r['Created Date']:'', t:h?h.t:0,
+      days:h&&h.t?Math.max(0,Math.floor((now-h.t)/86400000)):null,
       closed:!!conv, closedOn:conv?(conv['Converted Date']||''):'', closedBy:conv?(conv['Owner Name']||''):''
     });
   });
   return out.sort((a,b)=>b.t-a.t);
 }
+// Which dates the uploaded Activity Report actually covers. The CRM can drop
+// whole periods from long exports, so report any gap of 7+ days with no rows.
+function getActivityCoverage(rows){
+  rows=rows||hotCache;
+  const days=[...new Set(rows.map(r=>{const d=parseDate(r['Created Date']);return d?d.getTime():null;}).filter(Boolean))].sort((a,b)=>a-b);
+  if(!days.length)return null;
+  const DAY=86400000,gaps=[];
+  for(let i=1;i<days.length;i++)if(days[i]-days[i-1]>7*DAY)gaps.push([days[i-1]+DAY,days[i]-DAY]);
+  const today=new Date();today.setHours(0,0,0,0);
+  const staleDays=Math.round((today-days[days.length-1])/DAY);
+  return{first:days[0],last:days[days.length-1],gaps,staleDays};
+}
+function fmtDay(t){return new Date(t).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});}
+function activityCoverageWarning(){
+  const c=getActivityCoverage();if(!c)return'';
+  const parts=c.gaps.map(([a,b])=>`${fmtDay(a)} – ${fmtDay(b)}`);
+  if(c.staleDays>3)parts.push(`after ${fmtDay(c.last)}`);
+  if(!parts.length)return'';
+  return`<div class="hm-cov-warn"><i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i><span>Activity Report has no data for <b>${parts.join(', ')}</b>. Hot leads still come from the CRM status, but their notes and dates may be missing. Export those dates from the CRM in monthly parts and upload them in Admin.</span></div>`;
+}
 function drillHotLeads(which){
   const all=getHotLeads();
   const list=which==='closed'?all.filter(h=>h.closed):which==='open'?all.filter(h=>!h.closed):all;
   const rows=list.map(h=>[escHtml(h.name),`<span class="mono">${escHtml(h.mobile)}</span>`,escHtml(h.requirement),escHtml(h.location||'—'),
-    escHtml(h.by),`<span class="mono">${fmtDate(h.markedAt)}</span>`,h.days==null?'—':h.days,
+    escHtml(h.by),h.markedAt?`<span class="mono">${fmtDate(h.markedAt)}</span>`:'—',h.days==null?'—':h.days,
     `<span class="note-cell">${escHtml(h.note||'—')}</span>`,
     h.closed?`<span class="badge b-green">Closed ${fmtDate(h.closedOn)}</span>`:'<span class="badge b-red">Open</span>']);
   const title=which==='closed'?'Hot Leads — Closed':which==='open'?'Hot Leads — Open':'Hot Leads';
@@ -1580,7 +1620,7 @@ function renderHome(){
   hotList=hotList||`<div class="hm-empty">No hot leads for this selection</div>`;
   const hot=hotOpen;
   const hotDrillAll=useHotTable?`drillHotLeads('open')`:`drillByStatus('Hot')`;
-  const hotFoot=useHotTable?`<div class="hm-hot-foot"><span><b>${hotOpen.length.toLocaleString()}</b> open</span><button class="hm-link" onclick="drillHotLeads('closed')"><b>${hotClosed.toLocaleString()}</b> closed</button></div>`:'';
+  const hotFoot=useHotTable?`<div class="hm-hot-foot"><span><b>${hotOpen.length.toLocaleString()}</b> open</span><button class="hm-link" onclick="drillHotLeads('closed')"><b>${hotClosed.toLocaleString()}</b> closed</button></div>${activityCoverageWarning()}`:'';
 
   // 3 — Employee performance
   const d=getFiltered();

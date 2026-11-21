@@ -603,6 +603,17 @@ function dbShowPreview(headers, rows) {
   if (missingReq.length)  errors.push(`Missing required columns: ${missingReq.join(', ')}`);
   if (missingOpt.length)  warnings.push(`Optional columns not in file (will be blank): ${missingOpt.join(', ')}`);
 
+  // Activity Report: the CRM can silently drop date ranges from long exports —
+  // show what this file really covers so missing periods are caught before upload.
+  if (dbCurrentTable === 'hot_leads' && typeof getActivityCoverage === 'function') {
+    const cov = getActivityCoverage(rows);
+    if (cov) {
+      warnings.push(`This file covers <b>${fmtDay(cov.first)} → ${fmtDay(cov.last)}</b>. Check this matches the From/To dates you picked in the CRM.`);
+      cov.gaps.forEach(([a, b]) => warnings.push(`No rows between <b>${fmtDay(a)}</b> and <b>${fmtDay(b)}</b> — the CRM probably left this period out. Export it separately (month by month) and upload it too.`));
+      if (cov.staleDays > 3) warnings.push(`Latest row is ${cov.staleDays} days old. If you selected up to today, the CRM cut the export short — export the remaining dates separately.`);
+    }
+  }
+
   // Row-level required checks
   const rowErrors = [];
   rows.forEach((row, i) => {
@@ -714,6 +725,7 @@ async function dbInsert() {
 
   const BATCH = 500;
   const total = dbParsedRows.length;
+  let added = 0, dupes = 0, skipped = 0;
 
   try {
     for (let i = 0; i < total; i += BATCH) {
@@ -727,6 +739,11 @@ async function dbInsert() {
         body: JSON.stringify({ action: 'insert', password: dbGetPassword(), table: dbCurrentTable, rows: batch })
       });
       const d = await r.json();
+      if (d.ok) {
+        added   += (d.inserted ?? batch.length);
+        dupes   += (d.duplicates || 0);
+        skipped += (d.skipped || 0);
+      }
 
       if (!d.ok) {
         progressWrap.style.display = 'none';
@@ -745,9 +762,11 @@ async function dbInsert() {
     }
 
     progressFill.style.width  = '100%';
-    progressLabel.textContent = `Done! ${total.toLocaleString()} rows inserted successfully.`;
-    setTimeout(() => { progressWrap.style.display = 'none'; }, 3000);
-    dbShowToast(`✓ ${total.toLocaleString()} rows inserted into ${DB_TABLES[dbCurrentTable].label}`, 'success');
+    const extra = [dupes ? `${dupes.toLocaleString()} already uploaded (skipped)` : '',
+                   skipped ? `${skipped.toLocaleString()} without mobile (skipped)` : ''].filter(Boolean).join(', ');
+    progressLabel.textContent = `Done! ${added.toLocaleString()} new rows inserted${extra ? ' — ' + extra : ''}.`;
+    setTimeout(() => { progressWrap.style.display = 'none'; }, 5000);
+    dbShowToast(`✓ ${added.toLocaleString()} new rows in ${DB_TABLES[dbCurrentTable].label}${extra ? ' · ' + extra : ''}`, 'success');
     dbFetchCount(dbCurrentTable);
     dbClearFile();
   } catch (e) {

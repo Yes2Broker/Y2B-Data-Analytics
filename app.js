@@ -1465,7 +1465,7 @@ function tidyNote(t){
   t=String(t||'').replace(/^"+|"+$/g,'')
     .replace(/\s*[\r\n]+\s*/g,(m,off,str)=>/[.!?,;:]$/.test(str.slice(0,off).trimEnd())?' ':'. ')  // line breaks -> sentence breaks
     .replace(/\s+/g,' ').trim();
-  if(!t)return'';
+  if(!t||/^[.\-:,\s]*$/.test(t))return'';
   // spelling (whole words, keep a leading capital)
   t=t.replace(/\b[A-Za-z]+\b/g,w=>{const f=NOTE_SPELLING[w.toLowerCase()];if(!f)return w;return /^[A-Z]/.test(w)?f[0].toUpperCase()+f.slice(1):f;});
   NOTE_PHRASES.forEach(([re,to])=>{t=t.replace(re,to);});
@@ -1478,7 +1478,9 @@ function tidyNote(t){
   t=t.replace(/(^|[.!?]\s+)([a-z])/g,(_,p,c)=>p+c.toUpperCase());  // sentence case
   // drop repeated sentences (CRM auto-notes often repeat "Make call on …")
   const seen=new Set();
-  t=t.split(/(?<=[.!?])\s+/).filter(x=>{const k=x.toLowerCase().replace(/[.!?]+$/,'');if(seen.has(k))return false;seen.add(k);return true;}).join(' ');
+  t=t.split(/(?<=[.!?])\s+/).filter(x=>{const k=x.toLowerCase().replace(/[.!?:\s]+$/,'');if(seen.has(k))return false;seen.add(k);return true;}).join(' ');
+  t=t.replace(/\s*[:;,\-–]+\s*(?=[.!?]?$)/,'').trim();          // "Not received:" -> "Not received"
+  if(!t)return'';
   return /[.!?]$/.test(t)?t:t+'.';
 }
 // Hot list — two sources, each used for what it is reliable at:
@@ -1539,9 +1541,9 @@ function getHotLeads(){
       project:lead?.['Project Name']||'',
       ...(()=>{                                  // Hot note, else latest call note from the CRM
         const n=tidyNote(d.description);if(n||!lead)return{note:n,noteSource:n?'hot':''};
-        const calls=[1,2,3].map(k=>{const o=['1st','2nd','3rd'][k-1];return{t:normaliseValue(lead[`Latest ${o} Call Details`]),d:parseDate(lead[`Latest ${o} Call Date`])};})
-          .filter(c=>c.t).sort((a,b)=>(b.d||0)-(a.d||0));
-        return calls.length?{note:tidyNote(calls[0].t),noteSource:'call',noteDate:calls[0].d}:{note:'',noteSource:''};
+        const calls=[1,2,3].map(k=>{const o=['1st','2nd','3rd'][k-1];const ds=lead[`Latest ${o} Call Date`];return{t:normaliseValue(lead[`Latest ${o} Call Details`]),d:parseDateTime(ds),ds};})
+          .filter(c=>c.t&&!/^[.\-:,\s]*$/.test(c.t)).sort((a,b)=>(b.d||0)-(a.d||0));
+        return calls.length?{note:tidyNote(calls[0].t),noteSource:'call',noteDate:calls[0].ds}:{note:'',noteSource:''};
       })(),
       hasHistory:!!h,
       markedAt:h?h.r['Created Date']:'', t:h?h.t:0,
@@ -1576,7 +1578,7 @@ function drillHotLeads(which){
   const list=which==='closed'?all.filter(h=>h.closed):which==='open'?all.filter(h=>!h.closed):all;
   const rows=list.map(h=>[escHtml(h.name),`<span class="mono">${escHtml(h.mobile)}</span>`,escHtml(h.requirement),escHtml(h.location||'—'),
     escHtml(h.by),h.markedAt?`<span class="mono">${fmtDate(h.markedAt)}</span>`:'—',h.days==null?'—':h.days,
-    `<span class="note-cell">${h.noteSource==='call'?'<b>Last call:</b> ':''}${escHtml(h.note||'—')}</span>`,
+    `<span class="note-cell">${h.noteSource==='call'?`<b>Last call${h.noteDate?' ('+fmtDate(h.noteDate)+')':''}:</b> `:''}${escHtml(h.note||'—')}</span>`,
     h.closed?`<span class="badge b-green">Closed ${fmtDate(h.closedOn)}</span>`:'<span class="badge b-red">Open</span>']);
   const title=which==='closed'?'Hot Leads — Closed':which==='open'?'Hot Leads — Open':'Hot Leads';
   showDrill(`${title} (${list.length})`,rows,['Client','Mobile','Requirement','Location','Marked Hot By','Marked Hot On','Days Hot','Note','Status']);
@@ -1648,7 +1650,8 @@ function renderHome(){
   const rate=(a,b)=>b?Math.round(a/b*100):0;
   const emps=getCompEmployees().filter(o=>o&&o!=='Unknown').map(o=>{
     const leads=(leadsByOwner[o]||[]).length,calls=callsByOwner[o]||0,vis=visByOwner[o]||0,rev=revisitByOwner[o]||0,conv=convByOwner[o]||0;
-    return{o,leads,calls,vis,rev,conv,vr:rate(vis,calls),rr:rate(rev,vis),cr:rate(conv,vis)};
+    const pc=(a,b)=>b?Math.round(a/b*100)+'%':'—';     // no base -> rate can't be computed
+    return{o,leads,calls,vis,rev,conv,vr:pc(vis,calls),rr:pc(rev,vis),cr:pc(conv,vis)};
   }).filter(e=>e.leads||e.calls||e.vis||e.conv)
     .sort((a,b)=>b.conv-a.conv||b.vis-a.vis||b.leads-a.leads);
   const T=emps.reduce((t,e)=>{t.leads+=e.leads;t.calls+=e.calls;t.vis+=e.vis;t.rev+=e.rev;t.conv+=e.conv;return t;},{leads:0,calls:0,vis:0,rev:0,conv:0});
@@ -1659,7 +1662,7 @@ function renderHome(){
       <td class="hm-emp"><a onclick="drillByOwner('${q(e.o)}')">${escHtml(e.o)}</a>${e.conv&&e.conv===topConv?'<span class="hm-top">Top</span>':''}</td>
       <td>${n(e.leads)}</td><td>${n(e.calls)}</td><td>${n(e.vis)}</td><td>${n(e.rev)}</td>
       <td class="hm-strong">${e.conv?`<a onclick="drillConvByOwner('${q(e.o)}')">${n(e.conv)}</a>`:'0'}</td>
-      <td class="hm-muted">${e.vr}%</td><td class="hm-muted">${e.rr}%</td><td class="hm-strong">${e.cr}%</td>
+      <td class="hm-muted">${e.vr}</td><td class="hm-muted">${e.rr}</td><td class="hm-strong">${e.cr}</td>
     </tr>`).join('')||`<tr><td colspan="10" class="hm-empty">No employee activity for this selection</td></tr>`;
 
   el.innerHTML=`
@@ -1996,8 +1999,15 @@ function renderStatus(){
   mkScrollChart('statusTrendWrap','bar',tKeys,stDS,{stacked:true,onBarClick:(period)=>drillPeriodLeads(period)});
 
   const pg=getPg('statusTable');
-  const rows=lbl.slice((pg.page-1)*pg.size,pg.page*pg.size).map(l=>[badge(l),`<span class="mono">${sm[l].toLocaleString()}</span>`,Math.round(sm[l]/total*100)+'%']);
-  fillTable('statusTable',['Status','Count','Share %'],rows,['Total',total.toLocaleString(),'100%']);
+  // Lead statuses are counts of leads. "Site Visit Done" and "Converted" are counted
+  // from the Site Visits / Conversions data (visit events, deals), so they are
+  // shown separately and kept out of the lead total.
+  const SRC_NOTE={'Site Visit Done':'visits (from Site Visits)','Converted':'deals (from Conversions)'};
+  const leadTotal=lbl.filter(l=>!SRC.includes(l)).reduce((a,l)=>a+sm[l],0);
+  const rows=lbl.slice((pg.page-1)*pg.size,pg.page*pg.size).map(l=>SRC.includes(l)
+    ?[badge(l)+` <span style="font-size:11px;color:#94a3b8">${SRC_NOTE[l]}</span>`,`<span class="mono">${sm[l].toLocaleString()}</span>`,'—']
+    :[badge(l),`<span class="mono">${sm[l].toLocaleString()}</span>`,(leadTotal?Math.round(sm[l]/leadTotal*100):0)+'%']);
+  fillTable('statusTable',['Status','Count','Share %'],rows,['Total leads (excl. visits & deals rows)',leadTotal.toLocaleString(),'100%']);
   renderPagination('statusPg','statusTable',lbl.length);
 }
 
@@ -2420,11 +2430,11 @@ function renderComparison(){
     const vis=visByOwner[o]||0;
     const rev=revisitByOwner[o]||0;
     const calls=sub.reduce((t,r)=>t+callCount(r),0);
-    const vr=calls?Math.round(vis/calls*100):0;
-    const cr=vis?Math.round(cv/vis*100):0;
-    const rr=vis?Math.round(rev/vis*100):0;
+    const vr=calls?Math.round(vis/calls*100)+'%':'—';
+    const cr=vis?Math.round(cv/vis*100)+'%':'—';
+    const rr=vis?Math.round(rev/vis*100)+'%':'—';
     tLeads+=sub.length;tCalls+=calls;tVis+=vis;tRev+=rev;tConv+=cv;
-    return[`<span style="cursor:pointer;color:var(--blue-600);font-weight:600" onclick="drillByOwner('${escHtml(o).replace(/'/g,"\\'")}')">${escHtml(o)}</span>`,sub.length,calls,vis,rev,cv,vr+'%',rr+'%',cr+'%',
+    return[`<span style="cursor:pointer;color:var(--blue-600);font-weight:600" onclick="drillByOwner('${escHtml(o).replace(/'/g,"\\'")}')">${escHtml(o)}</span>`,sub.length,calls,vis,rev,cv,vr,rr,cr,
       cv===maxConv&&maxConv>0?'<span class="badge b-green">Top</span>':`<span class="badge b-grey">${maxConv?Math.round(cv/maxConv*100):0}%</span>`];
   });
   const totVr=tCalls?Math.round(tVis/tCalls*100):0;

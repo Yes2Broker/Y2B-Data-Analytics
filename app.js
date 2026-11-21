@@ -1132,6 +1132,8 @@ function mkScrollChart(wrapperId,type,allLabels,datasets,opts={}){
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function setBadge(id,n){const el=document.getElementById(id);if(el)el.textContent=`${Number(n).toLocaleString()} records`;}
 function pct(a,b){return b?Math.round(a/b*100)+'%':'0%';}
+// Rate as text: "—" when nothing to divide by; one decimal under 1% (0.4%), else whole %
+function fmtRate(a,b){if(!b)return'—';const v=a/b*100;if(v>0&&v<1){const t=v.toFixed(1);return(t==='1.0'?'1':t)+'%';}return Math.round(v)+'%';}
 function badge(s){
   const l=(s||'').toLowerCase();
   if(l==='site visit done')    return`<span class="badge b-green">${escHtml(s)}</span>`;
@@ -1651,7 +1653,7 @@ function renderHome(){
   const rate=(a,b)=>b?Math.round(a/b*100):0;
   const emps=getCompEmployees().filter(o=>o&&o!=='Unknown').map(o=>{
     const leads=(leadsByOwner[o]||[]).length,calls=callsByOwner[o]||0,vis=visByOwner[o]||0,rev=revisitByOwner[o]||0,conv=convByOwner[o]||0;
-    const pc=(a,b)=>b?Math.round(a/b*100)+'%':'—';     // no base -> rate can't be computed
+    const pc=fmtRate;
     return{o,leads,calls,vis,rev,conv,vr:pc(vis,calls),rr:pc(rev,vis),cr:pc(conv,vis)};
   }).filter(e=>e.leads||e.calls||e.vis||e.conv)
     .sort((a,b)=>b.conv-a.conv||b.vis-a.vis||b.leads-a.leads);
@@ -1694,7 +1696,7 @@ function renderHome(){
       <div class="hm-tbl-wrap"><table class="hm-tbl">
         <thead><tr><th>#</th><th class="hm-emp">Employee</th><th>Leads</th><th>Calls</th><th>Visits</th><th>Revisits</th><th>Closed</th><th>Visit %</th><th>Revisit %</th><th>Closure %</th></tr></thead>
         <tbody>${empRows}</tbody>
-        ${emps.length?`<tfoot><tr><td></td><td class="hm-emp">Total</td><td>${n(T.leads)}</td><td>${n(T.calls)}</td><td>${n(T.vis)}</td><td>${n(T.rev)}</td><td>${n(T.conv)}</td><td>${rate(T.vis,T.calls)}%</td><td>${rate(T.rev,T.vis)}%</td><td>${rate(T.conv,T.vis)}%</td></tr></tfoot>`:''}
+        ${emps.length?`<tfoot><tr><td></td><td class="hm-emp">Total</td><td>${n(T.leads)}</td><td>${n(T.calls)}</td><td>${n(T.vis)}</td><td>${n(T.rev)}</td><td>${n(T.conv)}</td><td>${fmtRate(T.vis,T.calls)}</td><td>${fmtRate(T.rev,T.vis)}</td><td>${fmtRate(T.conv,T.vis)}</td></tr></tfoot>`:''}
       </table></div>
     </div>`;
 }
@@ -1881,9 +1883,9 @@ function renderOwner(){
     `<span class="badge b-blue">${om[l].revisits}</span>`,
     om[l].inactive,om[l].scheduled,om[l].converted,
     // "—" when there is nothing to divide by (no calls / no visits)
-    om[l].calls>0?`<span class="badge ${om[l].visitRate>=30?'b-green':om[l].visitRate>=15?'b-amber':'b-red'}">${om[l].visitRate}%</span>`:'—',
-    om[l].visits>0?`<span class="badge ${om[l].closureRate>=20?'b-green':om[l].closureRate>=10?'b-amber':'b-red'}">${om[l].closureRate}%</span>`:'—',
-    om[l].visits>0?`<span class="badge b-blue">${om[l].revisitRate}%</span>`:'—',
+    om[l].calls>0?`<span class="badge ${om[l].visitRate>=30?'b-green':om[l].visitRate>=15?'b-amber':'b-red'}">${fmtRate(om[l].visits,om[l].calls)}</span>`:'—',
+    om[l].visits>0?`<span class="badge ${om[l].closureRate>=20?'b-green':om[l].closureRate>=10?'b-amber':'b-red'}">${fmtRate(om[l].converted,om[l].visits)}</span>`:'—',
+    om[l].visits>0?`<span class="badge b-blue">${fmtRate(om[l].revisits,om[l].visits)}</span>`:'—',
     Math.round(om[l].leads/d.length*100)+'%'
   ]);
   const totalConverted=getFilteredConverted().length;
@@ -1897,7 +1899,7 @@ function renderOwner(){
   const totRevisitRate=sumVisits>0?Math.round(sumRevisits/sumVisits*100):0;
   const totals=['Total',d.length,sumCalls,sumVisits,sumRevisits,
     d.filter(r=>r['Status Name']==='Inactive').length,'',sumConverted,
-    totVisitRate+'%',totClosureRate+'%',totRevisitRate+'%','100%'];
+    fmtRate(sumVisits,sumCalls),fmtRate(sumConverted,sumVisits),fmtRate(sumRevisits,sumVisits),'100%'];
   fillTable('ownerTable',['Owner','Leads','Calls','Visits','Revisits','Inactive','Scheduled','Converted','Visit Rate','Closure Rate','Revisit Rate','Share'],rows,totals);
   // Reconciliation note: confirm visits sum equals the site_visit total
   const note=document.getElementById('ownerVisitNote');
@@ -2432,9 +2434,9 @@ function renderComparison(){
     const vis=visByOwner[o]||0;
     const rev=revisitByOwner[o]||0;
     const calls=sub.reduce((t,r)=>t+callCount(r),0);
-    const vr=calls?Math.round(vis/calls*100)+'%':'—';
-    const cr=vis?Math.round(cv/vis*100)+'%':'—';
-    const rr=vis?Math.round(rev/vis*100)+'%':'—';
+    const vr=fmtRate(vis,calls);
+    const cr=fmtRate(cv,vis);
+    const rr=fmtRate(rev,vis);
     tLeads+=sub.length;tCalls+=calls;tVis+=vis;tRev+=rev;tConv+=cv;
     return[`<span style="cursor:pointer;color:var(--blue-600);font-weight:600" onclick="drillByOwner('${escHtml(o).replace(/'/g,"\\'")}')">${escHtml(o)}</span>`,sub.length,calls,vis,rev,cv,vr,rr,cr,
       cv===maxConv&&maxConv>0?'<span class="badge b-green">Top</span>':`<span class="badge b-grey">${maxConv?Math.round(cv/maxConv*100):0}%</span>`];
@@ -2444,7 +2446,7 @@ function renderComparison(){
   const totRr=tVis?Math.round(tRev/tVis*100):0;
   fillTable('compTable',['Employee','Leads','Calls','Visits','Revisits','Converted','Visit Rate %','Revisit Rate %','Closure Rate %','vs Top'],
     compRows,
-    ['Total',tLeads,tCalls,tVis,tRev,tConv,totVr+'%',totRr+'%',totCr+'%','']);
+    ['Total',tLeads,tCalls,tVis,tRev,tConv,fmtRate(tVis,tCalls),fmtRate(tRev,tVis),fmtRate(tConv,tVis),'']);
 }
 
 // ── LIFECYCLE ─────────────────────────────────────────────────

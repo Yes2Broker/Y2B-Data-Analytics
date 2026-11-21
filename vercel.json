@@ -1,5 +1,0 @@
-{
-  "functions": {
-    "api/db-manager.js": { "maxDuration": 60 }
-  }
-}

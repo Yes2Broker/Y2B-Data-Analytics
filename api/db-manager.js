@@ -4,7 +4,6 @@
    ================================================================ */
 
 const { isAuthed } = require('./_auth');
-const { addCleanDescriptions } = require('./_hot');
 
 const ALLOWED_TABLES = ['master_data', 'convertion', 'site_visit', 'hot_leads'];
 
@@ -31,10 +30,9 @@ const TABLE_COLUMNS = {
   site_visit: [
     'Date','Visit Done By','CustomerName','Mobile No.','Location','Visited Project','Source'
   ],
-  // CRM "Activity Report" export. "Clean Description" is filled by the server.
+  // CRM "Activity Report" export (notes are tidied up in the dashboard when shown)
   hot_leads: [
-    'Name','Mobile No.','Activity Title','Activity Details','Locations','User','Created Date',
-    'Clean Description'
+    'Name','Mobile No.','Activity Title','Activity Details','Locations','User','Created Date'
   ]
 };
 
@@ -145,9 +143,6 @@ module.exports = async function handler(req, res) {
       allowedCols.forEach(col => { if (col in row) clean[col] = row[col] || null; });
       return clean;
     });
-
-    // Hot leads: grammar-correct the employee's note (stored as "Clean Description")
-    if (table === 'hot_leads') await addCleanDescriptions(cleanRows);
 
     // Batch insert
     let inserted = 0;

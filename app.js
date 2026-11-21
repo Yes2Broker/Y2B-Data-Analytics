@@ -697,7 +697,7 @@ async function loadAll(){
   }catch(err){showError(err.message);console.error(err);}
   finally{document.getElementById('refreshBtn')?.classList.remove('refreshing');}
 }
-async function loadData(){masterCache=[];visitsCache=[];convertedCache=[];hotCache=[];companies=[];invalidate();invalidateMobileIndex();await loadAll();}
+async function loadData(){_properNouns=null;masterCache=[];visitsCache=[];convertedCache=[];hotCache=[];companies=[];invalidate();invalidateMobileIndex();await loadAll();}
 function updateLoadText(m){const el=document.querySelector('.load-text');if(el)el.textContent=m;}
 
 // ── COMPANY CRUD ──────────────────────────────────────────────
@@ -1375,12 +1375,87 @@ function parseDateTime(s){
   if(m){let h=+m[1];const ap=(m[4]||'').toUpperCase();if(ap==='PM'&&h<12)h+=12;if(ap==='AM'&&h===12)h=0;d.setHours(h,+m[2],+(m[3]||0));}
   return d;
 }
-// Basic tidy-up for notes that weren't grammar-corrected on upload
+// ── NOTE CLEANUP (free, no AI) ────────────────────────────────
+// Tidies the employee's free-text note for display: spelling fixes for words
+// common in our CRM notes, frequent grammar slips, real-estate formatting,
+// proper capitalisation of projects/areas (taken from our own data), and
+// sentence punctuation. The original text is never changed in the database.
+const NOTE_SPELLING={
+  prefernce:'preference',preferance:'preference',prefrence:'preference',
+  requirment:'requirement',requirmnet:'requirement',
+  intrested:'interested',intersted:'interested',interseted:'interested',intrest:'interest',
+  bunglow:'bungalow',bunglows:'bungalows',banglow:'bungalow',
+  willl:'will',wil:'will',tommorow:'tomorrow',tomorow:'tomorrow',tmrw:'tomorrow',tmr:'tomorrow',
+  recieved:'received',recieve:'receive',definately:'definitely',
+  propety:'property',proprty:'property',propery:'property',
+  vist:'visit',visted:'visited',sitevisit:'site visit',
+  famliy:'family',familly:'family',freind:'friend',budjet:'budget',buget:'budget',
+  loaction:'location',locaton:'location',availble:'available',avilable:'available',
+  posession:'possession',possesion:'possession',posesion:'possession',
+  pluss:'plus',
+  confrim:'confirm',confirmd:'confirmed',discus:'discuss',dicussion:'discussion',
+  becuase:'because',becasue:'because',bcz:'because',bcoz:'because',coz:'because',
+  abt:'about',pls:'please',plz:'please',ur:'your',wth:'with',
+  msg:'message',govt:'government',walkin:'walk-in',setelite:'satellite',sattelite:'satellite',satelite:'satellite',
+  orrisa:'Orissa',saphire:'sapphire',
+};
+const NOTE_PHRASES=[
+  [/\b(client|customer)\s+(like|want|need|prefer|say|ask)\b/gi,(m,w,v)=>`${w} ${v}s`],
+  [/\b(client|customer)\s+(is\s+)?confuse\b/gi,'$1 is confused'],
+  [/\b(he|she|they)\s+let\s+me\s+know\b/gi,'$1 will let me know'],
+  [/\bint in\b/gi,'interested in'],
+  [/^walking$/i,'walk-in'],
+  [/\bre\s+visit\b/gi,'revisit'],
+  [/\bnot\s+pick(ing)?\s+(up\s+)?(the\s+)?call\b/gi,'not picking up the call'],
+  [/\bready\s+to\s+move\s+in\b/gi,'ready-to-move-in'],
+  [/\bpre\s*lease(d)?\b/gi,'pre-lease$1'],
+  [/\s*@\s*/g,' at '],
+  [/\b([A-Z])block\b/gi,(m,l)=>`${l.toUpperCase()} Block`],
+  [/\b([A-Z])\s*-?\s*(\d{3,4})\b/g,'$1-$2'],
+  [/(\d)\s*bhk\b/gi,'$1 BHK'],[/\bbhk\b/gi,'BHK'],
+  [/(\d)\s*(cr|crore)\b/gi,'$1 Cr'],[/(\d)\s*(l|lac|lakh|lakhs)\b/gi,'$1 L'],
+  [/\bsq\.?\s*(ft|feet)\b\.?/gi,'sq ft'],[/\bsq\.?\s*(yd|yrd|yrds|yard|yards)\b\.?/gi,'sq yd'],
+  [/(\d)\.\s+(sq (ft|yd))/gi,'$1 $2'],
+  [/(\d),(\d)\s*Cr\b/g,'$1.$2 Cr'],
+  [/(\d)\s*-\s*(\d)\s+time\b/gi,'$1-$2 times'],
+  [/(\d)([A-Z][a-z])/g,'$1 $2'],
+  [/:\s*-\s*(?=\d)/g,': '],
+  [/\s+\/\s*(?=[A-Za-z])/g,'. '],
+  [/\(\s+/g,'('],[/\s+\)/g,')'],
+  [/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi,w=>w[0].toUpperCase()+w.slice(1).toLowerCase()],
+  [/\bnew\s+c\s*\.?\s*g\.?\s+road\b/gi,'New CG Road'],[/\bc\s*\.?\s*g\.?\s+road\b/gi,'CG Road'],[/\bs\s*\.?\s*g\.?\s+(highway|road)\b/gi,(m,w)=>'SG '+w[0].toUpperCase()+w.slice(1).toLowerCase()],
+  [/\b(pdpu|gift city|sbi|hdfc|icici|emi|nri|rera)\b/gi,w=>w.toUpperCase().replace('GIFT CITY','GIFT City')],
+  [/\b(\d{1,2})(st|nd|rd|th)\s+([a-z]+)/gi,(m,d,s,mo)=>{const M=['january','february','march','april','may','june','july','august','september','october','november','december'];const i=M.findIndex(x=>x.startsWith(mo.toLowerCase())&&mo.length>=3);return i<0?m:`${d}${s.toLowerCase()} ${M[i][0].toUpperCase()+M[i].slice(1)}`;}],
+];
+let _properNouns=null,_properKey='';
+function getProperNouns(){
+  const key=masterCache.length+':'+hotCache.length;
+  if(_properNouns&&_properKey===key)return _properNouns;
+  const map={};
+  const add=v=>{v=normaliseValue(v);if(!v||v.length<3||/^\d/.test(v))return;const k=v.toLowerCase();
+    if(!map[k])map[k]=(v===v.toUpperCase()||v===v.toLowerCase())?titleCase(v):v;};
+  masterCache.forEach(r=>{add(r['Project Name']);add(r['Property Location']);});
+  hotCache.forEach(r=>add(r['Locations']));
+  visitsCache.forEach(r=>{add(r['Location']);splitProjects(r['Visited Project']).forEach(add);});
+  ['Ahmedabad','Gandhinagar','Gujarat','Mumbai','Pune','Vadodara','Surat','Motera','Chandkheda','Koteshwar','Zundal',
+   'Raysan','Kudasan','Sargasan','Sabarmati','Satellite','Vastrapur','Bopal','South Bopal','Gota','Thaltej','Prahlad Nagar',
+   'Bodakdev','Vaishnodevi','Tragad','Naroda','Nikol','Maninagar','Navrangpura','Science City','Shela','Shilaj'].forEach(add);
+  // longest first so "Savya Sky 2" wins over "Savya Sky"
+  _properNouns=Object.keys(map).sort((a,b)=>b.length-a.length).map(k=>[new RegExp('\\b'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','gi'),map[k]]);
+  _properKey=key;return _properNouns;
+}
 function tidyNote(t){
   t=String(t||'').replace(/\s+/g,' ').trim();if(!t)return'';
-  t=t.replace(/\s+([.,!?;:])/g,'$1').replace(/([,;:])(?=[^\s\d])/g,'$1 ').replace(/\.(?=[A-Za-z]{2})/g,'. ')
-     .replace(/\bi\b/g,'I').replace(/(\d)\s*bhk\b/gi,'$1 BHK').replace(/\bbhk\b/gi,'BHK').replace(/(\d)\s*cr\b/gi,'$1 Cr');
-  t=t.replace(/(^|[.!?]\s+)([a-z])/g,(_,p,c)=>p+c.toUpperCase());
+  // spelling (whole words, keep a leading capital)
+  t=t.replace(/\b[A-Za-z]+\b/g,w=>{const f=NOTE_SPELLING[w.toLowerCase()];if(!f)return w;return /^[A-Z]/.test(w)?f[0].toUpperCase()+f.slice(1):f;});
+  NOTE_PHRASES.forEach(([re,to])=>{t=t.replace(re,to);});
+  getProperNouns().forEach(([re,to])=>{t=t.replace(re,to);});
+  t=t.replace(/\bi\b/g,'I')
+     .replace(/\s+([.,!?;:])/g,'$1')                 // no space before punctuation
+     .replace(/([,;!?])(?=[^\s\d])/g,'$1 ')           // space after , ; ! ?
+     .replace(/\.(?=[A-Za-z]{2})/g,'. ')             // "done.client" -> "done. client"
+     .replace(/\.{2,}/g,'.').replace(/\s{2,}/g,' ').trim();
+  t=t.replace(/(^|[.!?]\s+)([a-z])/g,(_,p,c)=>p+c.toUpperCase());  // sentence case
   return /[.!?]$/.test(t)?t:t+'.';
 }
 function getHotLeads(){
@@ -1420,7 +1495,7 @@ function getHotLeads(){
       requirement:[d.bhk,d.property].filter(Boolean).join(' ')||d.propertyFor||'—',
       location:normaliseValue(r['Locations'])||lead?.['Property Location']||'',
       project:lead?.['Project Name']||'',
-      note:normaliseValue(r['Clean Description'])||tidyNote(d.description),
+      note:tidyNote(d.description),
       markedAt:r['Created Date'], t,
       days:t?Math.max(0,Math.floor((now-t)/86400000)):null,
       closed:!!conv, closedOn:conv?(conv['Converted Date']||''):'', closedBy:conv?(conv['Owner Name']||''):''

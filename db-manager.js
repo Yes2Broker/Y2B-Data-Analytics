@@ -84,7 +84,7 @@ const DB_TABLES = {
   },
 
   // CRM "Activity Report" export — upload as-is. Rows without a mobile number are
-  // skipped by the server, and Hot notes are grammar-corrected on upload.
+  // skipped by the server; notes are tidied up by the dashboard when shown.
   hot_leads: {
     label: 'Hot Leads (Activity Report)',
     icon: 'flame',

@@ -1577,7 +1577,8 @@ function homeRangeText(){
 function renderHome(){
   const el=document.getElementById('section-home');if(!el)return;
   const {stages,total,converted}=getLifecycleData();
-  const overall=total?Math.round(converted/total*100):0;
+  const overallRaw=total?converted/total*100:0;
+  const overall=overallRaw>0&&overallRaw<10?overallRaw.toFixed(1).replace(/\.0$/,''):Math.round(overallRaw);
   const n=v=>Number(v||0).toLocaleString();
 
   // 1 — Lifecycle

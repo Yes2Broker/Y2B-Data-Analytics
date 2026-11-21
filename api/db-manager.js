@@ -4,8 +4,9 @@
    ================================================================ */
 
 const { isAuthed } = require('./_auth');
+const { addCleanDescriptions } = require('./_hot');
 
-const ALLOWED_TABLES = ['master_data', 'convertion', 'site_visit'];
+const ALLOWED_TABLES = ['master_data', 'convertion', 'site_visit', 'hot_leads'];
 
 const TABLE_COLUMNS = {
   master_data: [
@@ -29,13 +30,19 @@ const TABLE_COLUMNS = {
   ],
   site_visit: [
     'Date','Visit Done By','CustomerName','Mobile No.','Location','Visited Project','Source'
+  ],
+  // CRM "Activity Report" export. "Clean Description" is filled by the server.
+  hot_leads: [
+    'Name','Mobile No.','Activity Title','Activity Details','Locations','User','Created Date',
+    'Clean Description'
   ]
 };
 
 const REQUIRED_COLUMNS = {
   master_data: ['FirstName','Mobile No.','Property For','Status Name','Source Name','Owner Name','Created Date'],
   convertion:  ['FirstName','Mobile No.','Project Name','Property For','Property','Property Type','Property Location','Status Name','Converted Date','Source Name','Owner Name','Created Date'],
-  site_visit:  ['Date','Visit Done By','CustomerName','Mobile No.','Location','Visited Project','Source']
+  site_visit:  ['Date','Visit Done By','CustomerName','Mobile No.','Location','Visited Project','Source'],
+  hot_leads:   ['Activity Details','Created Date']
 };
 
 const BATCH_SIZE = 500;
@@ -103,6 +110,12 @@ module.exports = async function handler(req, res) {
 
   // ── Insert ────────────────────────────────────────────────
   if (action === 'insert') {
+    let rows = req.body.rows;
+    // Activity report rows without a mobile number can't be linked to a lead — skip them.
+    if (table === 'hot_leads' && Array.isArray(rows)) {
+      rows = rows.filter(r => r && String(r['Mobile No.'] || '').trim());
+      if (rows.length === 0) return res.status(200).json({ ok: true, inserted: 0, skipped: req.body.rows.length });
+    }
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ error: 'No rows provided.' });
     }
@@ -132,6 +145,9 @@ module.exports = async function handler(req, res) {
       allowedCols.forEach(col => { if (col in row) clean[col] = row[col] || null; });
       return clean;
     });
+
+    // Hot leads: grammar-correct the employee's note (stored as "Clean Description")
+    if (table === 'hot_leads') await addCleanDescriptions(cleanRows);
 
     // Batch insert
     let inserted = 0;

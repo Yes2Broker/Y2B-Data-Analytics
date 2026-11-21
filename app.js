@@ -24,6 +24,7 @@ const Y2B_ID    = 'y2b';
 let masterCache    = [];
 let visitsCache    = [];
 let convertedCache = [];
+let hotCache       = [];   // hot_leads table (CRM Activity Report)
 let companies      = [];
 let visitSourceConfig = {};   // normName(user) -> 'site_visit' | 'master_data' (overrides)
 let activeCompany  = Y2B_ID;
@@ -670,6 +671,9 @@ async function loadAll(){
     try{
       convertedCache = (await sbFetchAll('convertion','*','')).map(normaliseRow);
     }catch(e){ console.error('convertion load failed:',e); convertedCache=[]; showToast('Could not load Conversions: '+e.message,'error'); }
+    try{
+      hotCache = await sbFetchAll('hot_leads','*','');
+    }catch(e){ console.warn('hot_leads not loaded (table missing or empty):',e.message); hotCache=[]; }
     companies     =await loadCompanies();
     visitSourceConfig = await loadVisitSourceConfig();
     allProjects =[...new Set(masterCache.map(r=>r['Project Name']).filter(Boolean))].sort();
@@ -693,7 +697,7 @@ async function loadAll(){
   }catch(err){showError(err.message);console.error(err);}
   finally{document.getElementById('refreshBtn')?.classList.remove('refreshing');}
 }
-async function loadData(){masterCache=[];visitsCache=[];convertedCache=[];companies=[];invalidate();invalidateMobileIndex();await loadAll();}
+async function loadData(){masterCache=[];visitsCache=[];convertedCache=[];hotCache=[];companies=[];invalidate();invalidateMobileIndex();await loadAll();}
 function updateLoadText(m){const el=document.querySelector('.load-text');if(el)el.textContent=m;}
 
 // ── COMPANY CRUD ──────────────────────────────────────────────
@@ -1354,6 +1358,87 @@ function getMetrics(d){
   return{totalLeads,totalCalls,visitsDone,revisits,converted,inactive,warm,hot,active:active.length,visitRate,closureRate,revisitRate};
 }
 
+// ── HOT LEADS (hot_leads table = CRM Activity Report) ─────────
+// Each upload row is one status change. A client counts as Hot only if their
+// LATEST status change (by Created Date, per mobile) is Hot. A hot client whose
+// mobile appears in the conversion table is shown as Closed.
+const HOT_DETAILS_RE=/^\s*([^:]*):\s*([^,]*),\s*(.*?)\s*\(([^)]*)\)\s*,\s*Description:\s*([\s\S]*)$/;
+function parseHotDetails(s){
+  const m=HOT_DETAILS_RE.exec(String(s||''));
+  if(!m)return{propertyFor:'',property:'',bhk:'',status:'',description:''};
+  return{propertyFor:m[1].trim(),property:m[2].trim(),bhk:m[3].trim(),status:m[4].trim(),description:m[5].trim()};
+}
+// Full timestamp for "DD/MM/YYYY hh:mm:ss AM" (parseDate drops the time)
+function parseDateTime(s){
+  const d=parseDate(s);if(!d)return null;
+  const m=/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?/i.exec(String(s));
+  if(m){let h=+m[1];const ap=(m[4]||'').toUpperCase();if(ap==='PM'&&h<12)h+=12;if(ap==='AM'&&h===12)h=0;d.setHours(h,+m[2],+(m[3]||0));}
+  return d;
+}
+// Basic tidy-up for notes that weren't grammar-corrected on upload
+function tidyNote(t){
+  t=String(t||'').replace(/\s+/g,' ').trim();if(!t)return'';
+  t=t.replace(/\s+([.,!?;:])/g,'$1').replace(/([,;:])(?=[^\s\d])/g,'$1 ').replace(/\.(?=[A-Za-z]{2})/g,'. ')
+     .replace(/\bi\b/g,'I').replace(/(\d)\s*bhk\b/gi,'$1 BHK').replace(/\bbhk\b/gi,'BHK').replace(/(\d)\s*cr\b/gi,'$1 Cr');
+  t=t.replace(/(^|[.!?]\s+)([a-z])/g,(_,p,c)=>p+c.toUpperCase());
+  return /[.!?]$/.test(t)?t:t+'.';
+}
+function getHotLeads(){
+  if(!hotCache.length)return[];
+  // latest status change per mobile
+  const latest={};
+  hotCache.forEach((r,i)=>{
+    const mob=normMobile(r['Mobile No.']);if(!mob)return;
+    const t=(parseDateTime(r['Created Date'])||new Date(0)).getTime();
+    const cur=latest[mob];
+    if(!cur||t>cur.t||(t===cur.t&&i>cur.i))latest[mob]={r,t,i};
+  });
+  // links to leads (project/owner/source + company scoping) and conversions
+  const leadByMob={};masterCache.forEach(r=>{const m=normMobile(r['Mobile No.']);if(m&&!leadByMob[m])leadByMob[m]=r;});
+  const companyLeadMobs=new Set(getCompanyLeads().map(r=>normMobile(r['Mobile No.'])).filter(Boolean));
+  const convByMob={};getCompanyConverted().forEach(r=>{const m=normMobile(r['Mobile No.']);if(m)convByMob[m]=r;});
+  const ownerSet=fOwners.size?new Set([...fOwners].map(normName)):null;
+  const now=Date.now();
+  const out=[];
+  Object.entries(latest).forEach(([mob,{r,t}])=>{
+    const d=parseHotDetails(r['Activity Details']);
+    if(d.status.toLowerCase()!=='hot')return;
+    const lead=leadByMob[mob];
+    // company scope: Y2B keeps unmatched mobiles; a custom company needs a matching lead
+    if(lead?!companyLeadMobs.has(mob):activeCompany!==Y2B_ID)return;
+    const by=normName(r['User']);
+    if(ownerSet&&!ownerSet.has(by))return;
+    if(fSources.size&&!(lead&&fSources.has(lead['Source Name'])))return;
+    if(fFrom||fTo){
+      const dt=parseDate(r['Created Date']);if(!dt)return;
+      if(fFrom&&dt<new Date(fFrom+'T00:00:00'))return;
+      if(fTo&&dt>new Date(fTo+'T23:59:59'))return;
+    }
+    const conv=convByMob[mob];
+    out.push({
+      mobile:mob, name:normaliseValue(r['Name'])||'—', by,
+      requirement:[d.bhk,d.property].filter(Boolean).join(' ')||d.propertyFor||'—',
+      location:normaliseValue(r['Locations'])||lead?.['Property Location']||'',
+      project:lead?.['Project Name']||'',
+      note:normaliseValue(r['Clean Description'])||tidyNote(d.description),
+      markedAt:r['Created Date'], t,
+      days:t?Math.max(0,Math.floor((now-t)/86400000)):null,
+      closed:!!conv, closedOn:conv?(conv['Converted Date']||''):'', closedBy:conv?(conv['Owner Name']||''):''
+    });
+  });
+  return out.sort((a,b)=>b.t-a.t);
+}
+function drillHotLeads(which){
+  const all=getHotLeads();
+  const list=which==='closed'?all.filter(h=>h.closed):which==='open'?all.filter(h=>!h.closed):all;
+  const rows=list.map(h=>[escHtml(h.name),`<span class="mono">${escHtml(h.mobile)}</span>`,escHtml(h.requirement),escHtml(h.location||'—'),
+    escHtml(h.by),`<span class="mono">${fmtDate(h.markedAt)}</span>`,h.days==null?'—':h.days,
+    `<span class="note-cell">${escHtml(h.note||'—')}</span>`,
+    h.closed?`<span class="badge b-green">Closed ${fmtDate(h.closedOn)}</span>`:'<span class="badge b-red">Open</span>']);
+  const title=which==='closed'?'Hot Leads — Closed':which==='open'?'Hot Leads — Open':'Hot Leads';
+  showDrill(`${title} (${list.length})`,rows,['Client','Mobile','Requirement','Location','Marked Hot By','Marked Hot On','Days Hot','Note','Status']);
+}
+
 // ── HOME (default landing page) ───────────────────────────────
 // A calm, at-a-glance page: lifecycle funnel, hot leads, and the employee
 // performance table. Uses the exact same numbers as Lead Lifecycle and
@@ -1383,16 +1468,35 @@ function renderHome(){
     </button>`;
   }).join('');
 
-  // 2 — Hot leads (Status = Hot in CRM)
-  const hot=getFiltered().filter(r=>r['Status Name']==='Hot')
-    .sort((a,b)=>(parseDate(b['Created Date'])||0)-(parseDate(a['Created Date'])||0));
-  const hotList=hot.slice(0,8).map(r=>{
-    const name=`${r['FirstName']||''} ${r['LastName']||''}`.trim()||'—';
-    return`<div class="hm-hot-row">
-      <div class="hm-hot-main"><div class="hm-hot-name">${escHtml(name)}</div><div class="hm-hot-sub">${escHtml(r['Project Name']||'No project')}</div></div>
-      <div class="hm-hot-owner">${escHtml(r['Owner Name']||'—')}</div>
-    </div>`;
-  }).join('')||`<div class="hm-empty">No hot leads for this selection</div>`;
+  // 2 — Hot leads: from the hot_leads table when uploaded, else master_data "Hot" status
+  const useHotTable=hotCache.length>0;
+  let hotOpen=[],hotClosed=0,hotList='';
+  if(useHotTable){
+    const hl=getHotLeads();
+    hotOpen=hl.filter(h=>!h.closed);hotClosed=hl.length-hotOpen.length;
+    hotList=hotOpen.slice(0,8).map(h=>`<div class="hm-hot-row hm-hot-rich">
+      <div class="hm-hot-main">
+        <div class="hm-hot-name">${escHtml(h.name)}</div>
+        <div class="hm-hot-sub">${escHtml([h.requirement,h.location].filter(x=>x&&x!=='—').join(' · ')||'—')}</div>
+        ${h.note?`<div class="hm-hot-note">${escHtml(h.note)}</div>`:''}
+      </div>
+      <div class="hm-hot-side"><div class="hm-hot-owner">${escHtml(h.by)}</div>${h.days!=null?`<div class="hm-hot-age">${h.days===0?'Today':h.days===1?'1 day':h.days+' days'}</div>`:''}</div>
+    </div>`).join('');
+  }else{
+    hotOpen=getFiltered().filter(r=>r['Status Name']==='Hot')
+      .sort((a,b)=>(parseDate(b['Created Date'])||0)-(parseDate(a['Created Date'])||0));
+    hotList=hotOpen.slice(0,8).map(r=>{
+      const name=`${r['FirstName']||''} ${r['LastName']||''}`.trim()||'—';
+      return`<div class="hm-hot-row">
+        <div class="hm-hot-main"><div class="hm-hot-name">${escHtml(name)}</div><div class="hm-hot-sub">${escHtml(r['Project Name']||'No project')}</div></div>
+        <div class="hm-hot-owner">${escHtml(r['Owner Name']||'—')}</div>
+      </div>`;
+    }).join('');
+  }
+  hotList=hotList||`<div class="hm-empty">No hot leads for this selection</div>`;
+  const hot=hotOpen;
+  const hotDrillAll=useHotTable?`drillHotLeads('open')`:`drillByStatus('Hot')`;
+  const hotFoot=useHotTable?`<div class="hm-hot-foot"><span><b>${hotOpen.length.toLocaleString()}</b> open</span><button class="hm-link" onclick="drillHotLeads('closed')"><b>${hotClosed.toLocaleString()}</b> closed</button></div>`:'';
 
   // 3 — Employee performance
   const d=getFiltered();
@@ -1422,7 +1526,7 @@ function renderHome(){
     <div class="hm-summary">
       <div class="hm-sum"><div class="hm-sum-lbl">Leads in</div><div class="hm-sum-val">${n(total)}</div></div>
       <div class="hm-sum"><div class="hm-sum-lbl">Site visits</div><div class="hm-sum-val">${n(stages.find(s=>s.id==='lc-visited')?.val)}</div></div>
-      <div class="hm-sum hm-sum-hot" onclick="drillByStatus('Hot')"><div class="hm-sum-lbl">Hot leads</div><div class="hm-sum-val">${n(hot.length)}</div></div>
+      <div class="hm-sum hm-sum-hot" onclick="${hotDrillAll}"><div class="hm-sum-lbl">Hot leads</div><div class="hm-sum-val">${n(hot.length)}</div></div>
       <div class="hm-sum hm-sum-win"><div class="hm-sum-lbl">Closures</div><div class="hm-sum-val">${n(converted)}</div><div class="hm-sum-note">${overall}% of leads</div></div>
     </div>
 
@@ -1432,8 +1536,8 @@ function renderHome(){
         <div class="hm-stages">${stageRows}</div>
       </div>
       <div class="hm-card">
-        <div class="hm-card-head"><h3>Hot Leads <span class="hm-count">${n(hot.length)}</span></h3>${hot.length?`<button class="hm-link" onclick="drillByStatus('Hot')">View all</button>`:''}</div>
-        <div class="hm-hot">${hotList}</div>
+        <div class="hm-card-head"><h3>Hot Leads <span class="hm-count">${n(hot.length)}</span></h3>${hot.length?`<button class="hm-link" onclick="${hotDrillAll}">View all</button>`:''}</div>
+        <div class="hm-hot">${hotList}</div>${hotFoot}
       </div>
     </div>
 

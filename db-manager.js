@@ -81,6 +81,21 @@ const DB_TABLES = {
       'CustomerName': 'Mukesh Mehta', 'Mobile No.': '9773188068',
       'Location': 'Ahmedabad', 'Visited Project': 'Amrut Orchid', 'Source': 'Facebook'
     }
+  },
+
+  // CRM "Activity Report" export — upload as-is. Rows without a mobile number are
+  // skipped by the server, and Hot notes are grammar-corrected on upload.
+  hot_leads: {
+    label: 'Hot Leads (Activity Report)',
+    icon: 'flame',
+    color: 'red',
+    columns: ['Name','Mobile No.','Activity Title','Activity Details','Locations','User','Created Date'],
+    required: ['Activity Details','Created Date'],
+    sampleRow: {
+      'Name': 'Rahul Sharma', 'Mobile No.': '9876543210', 'Activity Title': 'Changed Property Status',
+      'Activity Details': 'Buy: Flat, 3 BHK (Hot), Description: client will probably convert on 30th june',
+      'Locations': 'Motera', 'User': 'Prateek Malhotra', 'Created Date': '19/11/2026 04:29:54 PM'
+    }
   }
 };
 
@@ -773,6 +788,7 @@ function lucidePathFor(icon) {
     'users':          '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     'check-circle-2': '<path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/>',
     'map-pin':        '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+    'flame':          '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
     'database':       '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.657 4.03 3 9 3s9-1.343 9-3V5"/><path d="M3 12c0 1.657 4.03 3 9 3s9-1.343 9-3"/>',
   };
   return paths[icon] || paths['database'];

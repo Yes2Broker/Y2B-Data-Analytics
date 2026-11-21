@@ -1533,3 +1533,9 @@ tbody tr:hover { background: var(--blue-50) !important; }
   .hm-tbl-wrap { margin: 0 -16px; padding: 0 16px; }
   .hm-stage { grid-template-columns: 10px 1fr 40px 56px; gap: 10px; }
 }
+.hm-hot-rich { align-items: flex-start; }
+.hm-hot-note { font-size: 13px; color: var(--s700); line-height: 1.45; margin-top: 6px; padding-left: 10px; border-left: 2px solid #fecaca; white-space: normal; }
+.hm-hot-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.hm-hot-age { font-size: 12px; color: var(--s400); }
+.hm-hot-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; margin-top: 4px; border-top: 1px solid var(--s100); font-size: 13px; color: var(--s500); }
+.hm-hot-foot b { color: var(--s900); }

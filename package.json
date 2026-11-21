@@ -1,0 +1,8 @@
+{
+  "name": "y2b-data-analytics",
+  "private": true,
+  "description": "yes2broker lead intelligence dashboard (static site + Vercel API functions)",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0"
+  }
+}

@@ -12,6 +12,7 @@ const ALLOWED = {
   master_data:      ['GET'],
   site_visit:       ['GET'],
   convertion:       ['GET'],
+  hot_leads:        ['GET'],
   companies:        ['GET', 'POST', 'PATCH', 'DELETE'],
   company_projects: ['GET', 'POST', 'DELETE'],
   visit_source_config: ['GET', 'POST', 'DELETE'],

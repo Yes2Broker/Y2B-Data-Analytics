@@ -1496,9 +1496,10 @@ function tidyNote(t){
 //    for a lead that master_data knows about.
 //  • A client found only in the Activity Report (not in master_data) counts as hot
 //    when their latest status change is Hot.
+const HOT_STATUSES=['Hot','Warm'];   // statuses shown in the Hot & Warm list (Hot first)
 function getHotLeads(){
-  // latest change, and latest *Hot* change, per mobile
-  const latest={},lastHot={};
+  // latest change, and latest change INTO each status (Hot / Warm), per mobile
+  const latest={},lastIn={Hot:{},Warm:{}};
   hotCache.forEach((r,i)=>{
     const mob=normMobile(r['Mobile No.']);if(!mob)return;
     const t=(parseDateTime(r['Created Date'])||new Date(0)).getTime();
@@ -1506,7 +1507,8 @@ function getHotLeads(){
     const rec={r,t,i,d};
     const cur=latest[mob];
     if(!cur||t>cur.t||(t===cur.t&&i>cur.i))latest[mob]=rec;
-    if(d.status.toLowerCase()==='hot'){const h=lastHot[mob];if(!h||t>h.t||(t===h.t&&i>h.i))lastHot[mob]=rec;}
+    const st=canon(d.status);
+    if(lastIn[st]){const h=lastIn[st][mob];if(!h||t>h.t||(t===h.t&&i>h.i))lastIn[st][mob]=rec;}
   });
   const allLeadByMob={};masterCache.forEach(r=>{const m=normMobile(r['Mobile No.']);if(m&&!allLeadByMob[m])allLeadByMob[m]=r;});
   const companyLeadByMob={};getCompanyLeads().forEach(r=>{const m=normMobile(r['Mobile No.']);if(m&&!companyLeadByMob[m])companyLeadByMob[m]=r;});
@@ -1514,17 +1516,26 @@ function getHotLeads(){
 
   // candidates: master_data Hot leads (company-scoped) + activity-only hot clients
   const cand=new Map();
-  Object.entries(companyLeadByMob).forEach(([m,lead])=>{if(lead['Status Name']==='Hot')cand.set(m,{lead,source:'crm'});});
+  // every lead row counts (a client can have several projects): Hot beats Warm, then newest row
+  getCompanyLeads().forEach(lead=>{
+    const st=lead['Status Name'];if(!HOT_STATUSES.includes(st))return;
+    const m=normMobile(lead['Mobile No.']);if(!m)return;
+    const cur=cand.get(m);
+    const better=!cur||HOT_STATUSES.indexOf(st)<HOT_STATUSES.indexOf(cur.status)||
+      (st===cur.status&&(parseDateTime(lead['Created Date'])||0)>(parseDateTime(cur.lead['Created Date'])||0));
+    if(better)cand.set(m,{lead,source:'crm',status:st});
+  });
   if(activeCompany===Y2B_ID){
     Object.entries(latest).forEach(([m,rec])=>{
-      if(!allLeadByMob[m]&&rec.d.status.toLowerCase()==='hot')cand.set(m,{lead:null,source:'activity'});
+      const st=canon(rec.d.status);
+      if(!allLeadByMob[m]&&HOT_STATUSES.includes(st))cand.set(m,{lead:null,source:'activity',status:st});
     });
   }
 
   const ownerSet=fOwners.size?new Set([...fOwners].map(normName)):null;
   const now=Date.now(),out=[];
-  cand.forEach(({lead,source},mob)=>{
-    const h=lastHot[mob];                        // may be missing (CRM export gap)
+  cand.forEach(({lead,source,status},mob)=>{
+    const h=lastIn[status][mob];                 // may be missing (CRM export gap)
     const by=h?normName(h.r['User']):normName(lead?.['Owner Name']);
     const owner=lead?normName(lead['Owner Name']):by;
     if(ownerSet&&!ownerSet.has(by)&&!ownerSet.has(owner))return;
@@ -1538,7 +1549,7 @@ function getHotLeads(){
     const leadName=lead?`${lead['FirstName']||''} ${lead['LastName']||''}`.trim():'';
     const conv=convByMob[mob];
     out.push({
-      mobile:mob, source,
+      mobile:mob, source, status,
       name:normaliseValue(h?.r['Name'])||leadName||'—', by,
       requirement:[d.bhk,d.property].filter(Boolean).join(' ')||[lead?.['Property Type'],lead?.['Property']].filter(Boolean).join(' ')||d.propertyFor||'—',
       location:normaliseValue(h?.r['Locations'])||lead?.['Property Location']||'',
@@ -1555,7 +1566,8 @@ function getHotLeads(){
       closed:!!conv, closedOn:conv?(conv['Converted Date']||''):'', closedBy:conv?(conv['Owner Name']||''):''
     });
   });
-  return out.sort((a,b)=>b.t-a.t);
+  // Hot first, then Warm; newest first within each
+  return out.sort((a,b)=>HOT_STATUSES.indexOf(a.status)-HOT_STATUSES.indexOf(b.status)||b.t-a.t);
 }
 // Which dates the uploaded Activity Report actually covers. The CRM can drop
 // whole periods from long exports, so report any gap of 7+ days with no rows.
@@ -1583,12 +1595,12 @@ function activityCoverageWarning(){
 function drillHotLeads(which){
   const all=getHotLeads();
   const list=which==='closed'?all.filter(h=>h.closed):which==='open'?all.filter(h=>!h.closed):all;
-  const rows=list.map(h=>[escHtml(h.name),`<span class="mono">${escHtml(h.mobile)}</span>`,escHtml(h.requirement),escHtml(h.location||'—'),
+  const rows=list.map(h=>[escHtml(h.name),badge(h.status),`<span class="mono">${escHtml(h.mobile)}</span>`,escHtml(h.requirement),escHtml(h.location||'—'),
     escHtml(h.by),h.markedAt?`<span class="mono">${fmtDate(h.markedAt)}</span>`:'—',h.days==null?'—':h.days,
     `<span class="note-cell">${h.noteSource==='call'?`<b>Last call${h.noteDate?' ('+fmtDate(h.noteDate)+')':''}:</b> `:''}${escHtml(h.note||'—')}</span>`,
     h.closed?`<span class="badge b-green">Closed ${fmtDate(h.closedOn)}</span>`:'<span class="badge b-red">Open</span>']);
-  const title=which==='closed'?'Hot Leads — Closed':which==='open'?'Hot Leads — Open':'Hot Leads';
-  showDrill(`${title} (${list.length})`,rows,['Client','Mobile','Requirement','Location','Marked Hot By','Marked Hot On','Days Hot','Note','Status']);
+  const title=which==='closed'?'Hot & Warm Leads — Closed':which==='open'?'Hot & Warm Leads — Open':'Hot & Warm Leads';
+  showDrill(`${title} (${list.length})`,rows,['Client','Hot / Warm','Mobile','Requirement','Location','Marked By','Marked On','Days in Status','Note','Status']);
 }
 
 // ── HOME (default landing page) ───────────────────────────────
@@ -1629,27 +1641,29 @@ function renderHome(){
     hotOpen=hl.filter(h=>!h.closed);hotClosed=hl.length-hotOpen.length;
     hotList=hotOpen.slice(0,8).map(h=>`<div class="hm-hot-row hm-hot-rich">
       <div class="hm-hot-main">
-        <div class="hm-hot-name">${escHtml(h.name)}</div>
+        <div class="hm-hot-name">${escHtml(h.name)} <span class="hm-st hm-st-${h.status.toLowerCase()}">${h.status}</span></div>
         <div class="hm-hot-sub">${escHtml([h.requirement,h.location].filter(x=>x&&x!=='—').join(' · ')||'—')}</div>
         ${h.note?`<div class="hm-hot-note">${h.noteSource==='call'?`<span class="hm-note-tag">Last call${h.noteDate?' · '+fmtDate(h.noteDate):''}</span> `:''}${escHtml(h.note)}</div>`:''}
       </div>
       <div class="hm-hot-side"><div class="hm-hot-owner">${escHtml(h.by)}</div>${h.days!=null?`<div class="hm-hot-age">${h.days===0?'Today':h.days===1?'1 day':h.days+' days'}</div>`:''}</div>
     </div>`).join('');
   }else{
-    hotOpen=getFiltered().filter(r=>r['Status Name']==='Hot')
-      .sort((a,b)=>(parseDate(b['Created Date'])||0)-(parseDate(a['Created Date'])||0));
+    hotOpen=getFiltered().filter(r=>HOT_STATUSES.includes(r['Status Name']))
+      .map(r=>({...r,status:r['Status Name']}))
+      .sort((a,b)=>HOT_STATUSES.indexOf(a.status)-HOT_STATUSES.indexOf(b.status)||(parseDate(b['Created Date'])||0)-(parseDate(a['Created Date'])||0));
     hotList=hotOpen.slice(0,8).map(r=>{
       const name=`${r['FirstName']||''} ${r['LastName']||''}`.trim()||'—';
       return`<div class="hm-hot-row">
-        <div class="hm-hot-main"><div class="hm-hot-name">${escHtml(name)}</div><div class="hm-hot-sub">${escHtml(r['Project Name']||'No project')}</div></div>
+        <div class="hm-hot-main"><div class="hm-hot-name">${escHtml(name)} <span class="hm-st hm-st-${r.status.toLowerCase()}">${r.status}</span></div><div class="hm-hot-sub">${escHtml(r['Project Name']||'No project')}</div></div>
         <div class="hm-hot-owner">${escHtml(r['Owner Name']||'—')}</div>
       </div>`;
     }).join('');
   }
-  hotList=hotList||`<div class="hm-empty">No hot leads for this selection</div>`;
+  hotList=hotList||`<div class="hm-empty">No hot or warm leads for this selection</div>`;
   const hot=hotOpen;
+  const nHot=hotOpen.filter(h=>h.status==='Hot').length,nWarm=hotOpen.length-nHot;
   const hotDrillAll=useHotTable?`drillHotLeads('open')`:`drillByStatus('Hot')`;
-  const hotFoot=useHotTable?`<div class="hm-hot-foot"><span><b>${hotOpen.length.toLocaleString()}</b> open</span><button class="hm-link" onclick="drillHotLeads('closed')"><b>${hotClosed.toLocaleString()}</b> closed</button></div>${activityCoverageWarning()}`:'';
+  const hotFoot=useHotTable?`<div class="hm-hot-foot"><span><b>${nHot.toLocaleString()}</b> hot · <b>${nWarm.toLocaleString()}</b> warm</span><button class="hm-link" onclick="drillHotLeads('closed')"><b>${hotClosed.toLocaleString()}</b> closed</button></div>${activityCoverageWarning()}`:'';
 
   // 3 — Employee performance
   const d=getFiltered();
@@ -1680,7 +1694,7 @@ function renderHome(){
     <div class="hm-summary">
       <div class="hm-sum"><div class="hm-sum-lbl">Leads in</div><div class="hm-sum-val">${n(total)}</div></div>
       <div class="hm-sum"><div class="hm-sum-lbl">Site visits</div><div class="hm-sum-val">${n(stages.find(s=>s.id==='lc-visited')?.val)}</div></div>
-      <div class="hm-sum hm-sum-hot" onclick="${hotDrillAll}"><div class="hm-sum-lbl">Hot leads</div><div class="hm-sum-val">${n(hot.length)}</div></div>
+      <div class="hm-sum hm-sum-hot" onclick="${hotDrillAll}"><div class="hm-sum-lbl">Hot / Warm leads</div><div class="hm-sum-val">${n(nHot)}<span class="hm-sum-sep"> / </span><span class="hm-sum-warm">${n(nWarm)}</span></div></div>
       <div class="hm-sum hm-sum-win"><div class="hm-sum-lbl">Closures</div><div class="hm-sum-val">${n(converted)}</div><div class="hm-sum-note">${overall}% of leads</div></div>
     </div>
 
@@ -1690,7 +1704,7 @@ function renderHome(){
         <div class="hm-stages">${stageRows}</div>
       </div>
       <div class="hm-card">
-        <div class="hm-card-head"><h3>Hot Leads <span class="hm-count">${n(hot.length)}</span></h3>${hot.length?`<button class="hm-link" onclick="${hotDrillAll}">View all</button>`:''}</div>
+        <div class="hm-card-head"><h3>Hot &amp; Warm Leads <span class="hm-count">${n(hot.length)}</span></h3>${hot.length?`<button class="hm-link" onclick="${hotDrillAll}">View all</button>`:''}</div>
         <div class="hm-hot">${hotList}</div>${hotFoot}
       </div>
     </div>

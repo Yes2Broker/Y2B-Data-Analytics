@@ -1542,3 +1542,8 @@ tbody tr:hover { background: var(--blue-50) !important; }
 .hm-cov-warn { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 12.5px; line-height: 1.45; }
 .hm-cov-warn b { color: #78350f; }
 .hm-note-tag { font-size: 11px; font-weight: 600; color: var(--s500); background: var(--s100); border-radius: 4px; padding: 1px 6px; margin-right: 4px; }
+.hm-st { display: inline-block; vertical-align: 1px; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+.hm-st-hot  { color: var(--rose); background: #fef2f2; }
+.hm-st-warm { color: #c2410c; background: #fff7ed; }
+.hm-sum-sep { color: var(--s300); font-weight: 600; }
+.hm-sum-warm { color: #ea580c; }
